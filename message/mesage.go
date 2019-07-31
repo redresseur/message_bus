@@ -5,11 +5,17 @@ import (
 	"github.com/redresseur/message_bus/definitions"
 )
 
-type MessageHandlerImpl struct {
+type messageHandlerImpl struct {
 	channelHandler definitions.ChannelHandler
 }
 
-func (mh *MessageHandlerImpl) SendMessageToEndpoint(data, metadata []byte, channelId, dstEndPointId string) error {
+func NewMessageHandler( ch definitions.ChannelHandler ) definitions.MessageHandler  {
+	return &messageHandlerImpl{
+		channelHandler: ch,
+	}
+}
+
+func (mh *messageHandlerImpl) SendMessageToEndpoint(data, metadata []byte, channelId, dstEndPointId string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
 		return definitions.ErrChannelNotExisted
@@ -24,7 +30,7 @@ func (mh *MessageHandlerImpl) SendMessageToEndpoint(data, metadata []byte, chann
 	return cc.SendMessage(msg)
 }
 
-func (mh *MessageHandlerImpl) SendMessageToAll(data, metadata []byte, channelId string) error {
+func (mh *messageHandlerImpl) SendMessageToAll(data, metadata []byte, channelId string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
 		return definitions.ErrChannelNotExisted
@@ -37,7 +43,7 @@ func (mh *MessageHandlerImpl) SendMessageToAll(data, metadata []byte, channelId 
 	})
 }
 
-func (mh *MessageHandlerImpl) SendMessageToEndpoints(data, metadata []byte, channelId string, points ... string) error {
+func (mh *messageHandlerImpl) SendMessageToEndpoints(data, metadata []byte, channelId string, points ... string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
 		return definitions.ErrChannelNotExisted
@@ -59,7 +65,7 @@ func (mh *MessageHandlerImpl) SendMessageToEndpoints(data, metadata []byte, chan
 	return nil
 }
 
-func (mh *MessageHandlerImpl) SendMessageToGroup(data, metadata []byte, group string) error {
+func (mh *messageHandlerImpl) SendMessageToGroup(data, metadata []byte, group string) error {
 	// TODO: 待實現
 	return errors.New("implement me")
 }

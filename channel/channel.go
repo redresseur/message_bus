@@ -15,6 +15,12 @@ type channelHandlerImpl struct {
 	contexts sync.Map
 }
 
+func NewChannelHandler(ctx context.Context) definitions.ChannelHandler  {
+	return &channelHandlerImpl{
+		ctx:ctx,
+	}
+}
+
 func (ch *channelHandlerImpl) ExitChannel(channelId string, point *definitions.EndPoint) error {
 	cc, ok := ch.contexts.Load(channelId)
 	if ! ok {
