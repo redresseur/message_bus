@@ -2,7 +2,6 @@ package definitions
 
 import (
 	"context"
-	"io"
 )
 
 type EndPointStatus string
@@ -14,8 +13,8 @@ const (
 )
 
 type EndPointIO interface {
-	io.Writer
-	io.Reader
+	Write(p interface{}) (error)
+	Read() (interface{}, error)
 }
 
 // 节点信息和设置

@@ -17,7 +17,7 @@ type hooker struct {
 
 type ChannelEvent struct {
 	ChannelId string `json:"channelId"`
-	Point definitions.EndPoint `json:"point"`
+	Point *definitions.EndPoint `json:"point"`
 }
 
 type channelEventHandlerImpl struct {

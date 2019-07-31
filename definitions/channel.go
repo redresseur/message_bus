@@ -133,16 +133,9 @@ func (cc *ChannelContext)messageProcess(){
 					continue
 				}
 
-				writtenLen, err := endPoint.RW.Write(m.Payload)
-				if err != nil{
+				if err := endPoint.RW.Write(m.Payload); err != nil{
 					logger.Errorf("Write Message Failure: %v", err)
 				}
-
-				if writtenLen != len(m.Payload) {
-					logger.Errorf("Write Message not equal: " +
-						"<dataLen, writtenLen> (%d, %d)", len(m.Payload), writtenLen)
-				}
-
 
 				// 增加计数
 				atomic.AddUint64(&endPoint.Sequence, 1)
@@ -160,16 +153,9 @@ func (cc *ChannelContext)messageProcess(){
 						break
 					}
 
-					writtenLen, err := endPoint.RW.Write(m.Payload)
-					if err != nil{
+					if err := endPoint.RW.Write(m.Payload); err != nil{
 						logger.Errorf("Write Message Failure: %v", err)
 					}
-
-					if writtenLen != len(m.Payload) {
-						logger.Errorf("Write Message not equal: " +
-							"<dataLen, writtenLen> (%d, %d)", len(m.Payload), writtenLen)
-					}
-
 
 					// 增加计数
 					atomic.AddUint64(&endPoint.Sequence, 1)
@@ -246,7 +232,7 @@ type ChannelHandler interface {
 	CloseChannel(channelId string, point *EndPoint) error
 
 	// 监听一个channel
-	ListenChannel(channelId string, point *EndPoint) error
+	ListenChannel(channelId string, point *EndPoint) (context.Context, error)
 
 	// 开启一个子channel
 	ChildrenChannel(parentContext *ChannelContext, childInfo *ChannelInfo, point *EndPoint)(*ChannelContext, error)

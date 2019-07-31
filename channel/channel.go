@@ -82,18 +82,18 @@ func (ch *channelHandlerImpl) CloseChannel(channelId string, point *definitions.
 	return nil
 }
 
-func (ch *channelHandlerImpl) ListenChannel(channelId string, point *definitions.EndPoint) error {
+func (ch *channelHandlerImpl) ListenChannel(channelId string, point *definitions.EndPoint)(context.Context, error) {
 	cc , ok := ch.contexts.Load(channelId)
 	if ! ok{
-		return nil
+		return nil, definitions.ErrEndPointNotExisted
 	}
 
 	ctx, err := cc.(*definitions.ChannelContext).BindRW(point.Id, point.RW)
 	if err != nil{
-		return err
+		return nil, err
 	}
 
-	<-ctx.Done()
-	return nil
+	// <-ctx.Done()
+	return ctx, nil
 }
 

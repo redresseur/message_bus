@@ -68,7 +68,7 @@ func (m *Manager)Service( eventType EventType) EventHandler {
 		return s
 	}
 
-	return &EmptyService{}
+	return &EmptyEventHandler{}
 }
 
 func NewManager()*Manager {
