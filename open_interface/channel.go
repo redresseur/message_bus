@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-var logger = flogging.MustGetLogger("def.channel")
+var logger = flogging.MustGetLogger("open.interface")
 
 // channel 的信息
 type ChannelInfo struct {

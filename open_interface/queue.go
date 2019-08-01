@@ -25,3 +25,8 @@ type QueueWriter interface {
 	// 成功则返回消息的队列地址
 	Push(interface{})(uint64, error)
 }
+
+type QueueRW interface {
+	QueueReader
+	QueueWriter
+}

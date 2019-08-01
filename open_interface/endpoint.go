@@ -17,6 +17,18 @@ type EndPointIO interface {
 	Read() (interface{}, error)
 }
 
+type EmptyEndPointIO struct {
+
+}
+
+func (e *EmptyEndPointIO) Write(p interface{}) (error) {
+	return nil
+}
+
+func (e *EmptyEndPointIO) Read() (interface{}, error) {
+	return nil, nil
+}
+
 // 节点信息和设置
 type EndPoint struct {
 	// 节点的ID, 唯一识别符

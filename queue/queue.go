@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-type QueueImpl struct {
+type queueImpl struct {
 	cacheLock sync.Mutex
 	cache map[uint64]interface{}
 
@@ -14,13 +14,22 @@ type QueueImpl struct {
 	index  uint64
 
 	// 最新消息的地址
-	// 初始值要为 -1
+	// 此地址对应的数据永远为空
 	latest uint64
 
 	signal chan open_interface.QueueSignal
 }
 
-func (qi *QueueImpl) Push(data interface{}) (uint64, error) {
+func NewQueueRW() open_interface.QueueRW {
+	return &queueImpl{
+		index: 0,
+		latest: 0,
+		signal: make(chan open_interface.QueueSignal, 1024),
+		cache: map[uint64]interface{}{},
+	}
+}
+
+func (qi *queueImpl) Push(data interface{}) (uint64, error) {
 	var(
 		index uint64
 	)
@@ -28,9 +37,9 @@ func (qi *QueueImpl) Push(data interface{}) (uint64, error) {
 	qi.cacheLock.Lock()
 	defer qi.cacheLock.Unlock()
 
-	qi.latest++
 	index = qi.latest
 	qi.cache[qi.latest] = data
+	qi.latest++
 
 	go func() {
 		qi.signal <- 0
@@ -39,7 +48,7 @@ func (qi *QueueImpl) Push(data interface{}) (uint64, error) {
 	return index, nil
 }
 
-func (qi *QueueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error) {
+func (qi *queueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error) {
 	var (
 		res = []interface{}{}
 		err error
@@ -71,11 +80,11 @@ func (qi *QueueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error)
 	return res, err
 }
 
-func (qi *QueueImpl) Single() (<-chan open_interface.QueueSignal) {
+func (qi *queueImpl) Single() (<-chan open_interface.QueueSignal) {
 	return qi.signal
 }
 
-func (qi *QueueImpl) Next(remove bool) (interface{}, error) {
+func (qi *queueImpl) Next(remove bool) (interface{}, error) {
 	var (
 		res interface{}
 		err error
@@ -98,7 +107,7 @@ func (qi *QueueImpl) Next(remove bool) (interface{}, error) {
 	return res, err
 }
 
-func (qi *QueueImpl) Remove(beginIndex, endIndex int32) (error) {
+func (qi *queueImpl) Remove(beginIndex, endIndex int32) (error) {
 	var(
 		start uint64 = 0
 		end uint64 = 0
@@ -135,7 +144,7 @@ func (qi *QueueImpl) Remove(beginIndex, endIndex int32) (error) {
 	return nil
 }
 
-func (qi *QueueImpl) Reset() (error) {
+func (qi *queueImpl) Reset() (error) {
 	qi.cacheLock.Lock()
 	defer qi.cacheLock.Unlock()
 

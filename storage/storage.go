@@ -24,7 +24,7 @@ func (si *StorageImpl) Put(key interface{}, value interface{}) (error) {
 }
 
 func (si *StorageImpl) Delete(key interface{}) (error) {
-	si.Delete(key)
+	si.cache.Delete(key)
 	return nil
 }
 

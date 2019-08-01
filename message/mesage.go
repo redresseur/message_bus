@@ -17,7 +17,7 @@ func NewMessageHandler( ch open_interface.ChannelHandler ) open_interface.Messag
 
 func (mh *messageHandlerImpl) SendMessageToEndpoint(payload interface{}, metadata []byte, channelId, dstEndPointId string) error {
 	cc := mh.channelHandler.Channel(channelId)
-	if cc != nil{
+	if cc == nil{
 		return open_interface.ErrChannelNotExisted
 	}
 
@@ -32,7 +32,7 @@ func (mh *messageHandlerImpl) SendMessageToEndpoint(payload interface{}, metadat
 
 func (mh *messageHandlerImpl) SendMessageToAll(payload interface{}, metadata []byte, channelId string) error {
 	cc := mh.channelHandler.Channel(channelId)
-	if cc != nil{
+	if cc == nil{
 		return open_interface.ErrChannelNotExisted
 	}
 
@@ -45,7 +45,7 @@ func (mh *messageHandlerImpl) SendMessageToAll(payload interface{}, metadata []b
 
 func (mh *messageHandlerImpl) SendMessageToEndpoints(payload interface{}, metadata []byte, channelId string, points ... string) error {
 	cc := mh.channelHandler.Channel(channelId)
-	if cc != nil{
+	if cc == nil{
 		return open_interface.ErrChannelNotExisted
 	}
 

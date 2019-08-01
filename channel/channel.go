@@ -20,7 +20,7 @@ type channelHandlerImpl struct {
 
 func NewChannelHandler(ctx context.Context) open_interface.ChannelHandler  {
 	return &channelHandlerImpl{
-		ctx:ctx,
+		ctx: ctx,
 		storageHandler: &storage.StorageHandlerImpl{},
 	}
 }
@@ -44,7 +44,11 @@ func (ch *channelHandlerImpl) ChildrenChannel(parentContext *open_interface.Chan
 }
 
 func (ch *channelHandlerImpl) Channel(channelId string) *open_interface.ChannelContext {
-	cc, _ := ch.contexts.Load(channelId)
+	cc, ok := ch.contexts.Load(channelId)
+	if !ok{
+		return nil
+	}
+
 	return cc.(*open_interface.ChannelContext)
 }
 
@@ -57,7 +61,10 @@ func (ch *channelHandlerImpl) CreateChannel(info *open_interface.ChannelInfo, po
 	cc := open_interface.WithChannelContext(ch.ctx, info, st)
 
 	point.IsCreator = true
-	return cc, cc.AddEndPoint(point)
+	cc.AddEndPoint(point)
+
+	ch.contexts.Store(info.ChannelId, cc)
+	return cc, nil
 }
 
 func (ch *channelHandlerImpl) JoinChannel(channelId string, point *open_interface.EndPoint) error {

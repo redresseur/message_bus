@@ -17,18 +17,15 @@ type hooker struct {
 }
 
 // 事件过滤器
-type ChannelEventFilter struct {
-	ChannelId string `json:"channelId"`
-	PointId string `json:"pointId"`
-}
+type ChannelEventFilter open_interface.CatchFunc
 
 type ChannelEventPayload struct {
 	ChannelId string `json:"channelId"`
-	Point open_interface.EndPoint `json:"point"`
+	Point *open_interface.EndPoint `json:"point"`
 }
 
 type channelEventHandlerImpl struct {
-	hookers sync.Map
+	hookers map[open_interface.EventType]sync.Map
 	reader open_interface.QueueReader
 	writer open_interface.QueueWriter
 	ctx context.Context
@@ -39,29 +36,58 @@ func (eh *channelEventHandlerImpl) DeliverEvent(event *open_interface.Event) err
 	return nil
 }
 
-func NewChannelEventHandlerImpl() open_interface.EventHandler {
-	return &channelEventHandlerImpl{
-		hookers: sync.Map{},
+func NewChannelEventHandlerImpl(ctx context.Context, reader open_interface.QueueReader,
+	writer open_interface.QueueWriter) open_interface.EventHandler {
+	eh := &channelEventHandlerImpl{
+		hookers: map[open_interface.EventType]sync.Map{},
+		reader: reader,
+		writer: writer,
 	}
+
+	newCtx, cancel := context.WithCancel(ctx)
+	eh.ctx = context.WithValue(newCtx, eh, cancel)
+
+	go eh.worker()
+
+	return eh
 }
 
 func (eh *channelEventHandlerImpl) RegistryEvent(req *open_interface.EventRequest,
 	c open_interface.CatchFunc)(string, error) {
 	eventID := uuid.New().String()
-	eh.hookers.Store(eventID, &hooker{
-		c: c,
-		req: req,
-	})
+	if sets, ok := eh.hookers[req.Type]; ok {
+		sets.Store(eventID, &hooker{
+			c: c,
+			req: req,
+		})
+	}else {
+		sets = sync.Map{}
+		sets.Store(eventID, &hooker{
+			c: c,
+			req: req,
+		})
+		eh.hookers[req.Type] = sets
+	}
+
 
 	return eventID, nil
 }
 
 func (eh *channelEventHandlerImpl)UnRegistryEvent(eventID string) error {
-	eh.hookers.Delete(eventID)
+	for _, v := range eh.hookers{
+		v.Delete(eventID)	
+	}
+	
 	return nil
 }
 
 func (eh *channelEventHandlerImpl)CatchEvent(e *open_interface.Event) error {
+	// 檢查類型組是否存在
+	hookers, ok := eh.hookers[e.Type]
+	if !ok{
+		return nil
+	}
+	
 	catchFuncs := []open_interface.CatchFunc{}
 
 	payload := &ChannelEventPayload{}
@@ -71,21 +97,20 @@ func (eh *channelEventHandlerImpl)CatchEvent(e *open_interface.Event) error {
 
 	q := func(key, value interface{}) bool {
 		h := value.(*hooker)
-		filter, ok := h.req.Filter.(*ChannelEventFilter)
+		filter, ok := h.req.Filter.(ChannelEventFilter)
 		if !ok{
 			logger.Warnf("the event filter is invalid")
 			return true
 		}
 
 		// 檢查當前的事件是否為其hooker 所期待的事件
-		if filter.ChannelId == payload.ChannelId &&
-			filter.PointId == payload.Point.Id{
+		if filter(e) == nil{
 			catchFuncs = append(catchFuncs, h.c)
 		}
 		return true
 	}
 
-	eh.hookers.Range(q)
+	hookers.Range(q)
 
 	cc := func(c open_interface.CatchFunc, e *open_interface.Event)(err error ){
 		defer func() {
