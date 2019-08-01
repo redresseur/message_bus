@@ -1,4 +1,4 @@
-package definitions
+package open_interface
 
 import "github.com/golang/protobuf/ptypes/timestamp"
 
@@ -19,9 +19,13 @@ type Event struct {
 	Timestamp  *timestamp.Timestamp `json:"timestamp"`
 }
 
+// 监听事件请求
 type EventRequest struct {
+	// 事件类型
 	Type EventType `json:"type"`
-	Payload []byte `json:"payload"`
+
+	// 事件过滤器
+	Filter interface{} `json:"payload"`
 }
 
 // 用来接收事件
@@ -29,17 +33,24 @@ type CatchFunc func (*Event) error
 
 type EventHandler interface {
 	// 注册一个事件处理的hooker
-	RegistryEvent(req *EventRequest,c CatchFunc) (string, error)
+	RegistryEvent(req *EventRequest, c CatchFunc) (string, error)
 
 	// 注销监听
 	UnRegistryEvent(eventID string) error
 
 	// 处理事件
 	CatchEvent(event *Event) error
+
+	// 提交事件
+	DeliverEvent(event *Event)error
 }
 
 type EmptyEventHandler struct {
 
+}
+
+func (*EmptyEventHandler) DeliverEvent(event *Event) error {
+	return nil
 }
 
 func (*EmptyEventHandler) RegistryEvent(req *EventRequest, c CatchFunc) (string, error) {

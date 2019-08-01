@@ -1,4 +1,4 @@
-package definitions
+package open_interface
 
 type Message struct {
 	// Channel ID

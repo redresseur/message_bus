@@ -1,37 +1,52 @@
 package event
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/redresseur/flogging"
-	"github.com/redresseur/message_bus/definitions"
+	"github.com/redresseur/message_bus/open_interface"
 	"sync"
 )
 
 var logger = flogging.MustGetLogger("event.impl")
 
 type hooker struct {
-	req *definitions.EventRequest
-	c definitions.CatchFunc
+	req *open_interface.EventRequest
+	c open_interface.CatchFunc
 }
 
-type ChannelEvent struct {
+// 事件过滤器
+type ChannelEventFilter struct {
 	ChannelId string `json:"channelId"`
-	Point *definitions.EndPoint `json:"point"`
+	PointId string `json:"pointId"`
+}
+
+type ChannelEventPayload struct {
+	ChannelId string `json:"channelId"`
+	Point open_interface.EndPoint `json:"point"`
 }
 
 type channelEventHandlerImpl struct {
 	hookers sync.Map
+	reader open_interface.QueueReader
+	writer open_interface.QueueWriter
+	ctx context.Context
 }
 
-func NewChannelEventHandlerImpl() definitions.EventHandler {
+func (eh *channelEventHandlerImpl) DeliverEvent(event *open_interface.Event) error {
+	eh.writer.Push(event)
+	return nil
+}
+
+func NewChannelEventHandlerImpl() open_interface.EventHandler {
 	return &channelEventHandlerImpl{
 		hookers: sync.Map{},
 	}
 }
 
-func (eh *channelEventHandlerImpl) RegistryEvent(req *definitions.EventRequest,
-	c definitions.CatchFunc)(string, error) {
+func (eh *channelEventHandlerImpl) RegistryEvent(req *open_interface.EventRequest,
+	c open_interface.CatchFunc)(string, error) {
 	eventID := uuid.New().String()
 	eh.hookers.Store(eventID, &hooker{
 		c: c,
@@ -46,26 +61,25 @@ func (eh *channelEventHandlerImpl)UnRegistryEvent(eventID string) error {
 	return nil
 }
 
-func (eh *channelEventHandlerImpl)CatchEvent(e *definitions.Event) error {
-	catchFuncs := []definitions.CatchFunc{}
+func (eh *channelEventHandlerImpl)CatchEvent(e *open_interface.Event) error {
+	catchFuncs := []open_interface.CatchFunc{}
 
-	ce := &ChannelEvent{}
-	if err := json.Unmarshal(e.Payload, ce); err != nil{
+	payload := &ChannelEventPayload{}
+	if err := json.Unmarshal(e.Payload, payload); err != nil{
 		return err
 	}
 
 	q := func(key, value interface{}) bool {
 		h := value.(*hooker)
-
-		cond :=  &ChannelEvent{}
-		if err := json.Unmarshal(h.req.Payload, ce); err != nil{
-			logger.Warnf("Unmarshal the event condition %v", err)
+		filter, ok := h.req.Filter.(*ChannelEventFilter)
+		if !ok{
+			logger.Warnf("the event filter is invalid")
 			return true
 		}
 
 		// 檢查當前的事件是否為其hooker 所期待的事件
-		if cond.ChannelId == ce.ChannelId &&
-			cond.Point.Id == ce.Point.Id{
+		if filter.ChannelId == payload.ChannelId &&
+			filter.PointId == payload.Point.Id{
 			catchFuncs = append(catchFuncs, h.c)
 		}
 		return true
@@ -73,7 +87,7 @@ func (eh *channelEventHandlerImpl)CatchEvent(e *definitions.Event) error {
 
 	eh.hookers.Range(q)
 
-	cc := func(c definitions.CatchFunc, e *definitions.Event)(err error ){
+	cc := func(c open_interface.CatchFunc, e *open_interface.Event)(err error ){
 		defer func() {
 			if r := recover(); r != nil{
 				if defErr, ok := r.(error); ok{
@@ -93,4 +107,25 @@ func (eh *channelEventHandlerImpl)CatchEvent(e *definitions.Event) error {
 	}
 
 	return nil
+}
+
+func (eh *channelEventHandlerImpl) worker() {
+	for {
+		select {
+		case _, ok := <-eh.reader.Single():
+			if !ok {
+				return
+			}
+
+			if e, err := eh.reader.Next(true); err != nil{
+				logger.Errorf("Get Event %v", err)
+				return
+			}else {
+			 	eh.CatchEvent(e.(*open_interface.Event))
+			}
+		case <-eh.ctx.Done():
+			logger.Debug("the event worker over")
+			return
+		}
+	}
 }

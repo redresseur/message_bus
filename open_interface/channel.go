@@ -1,10 +1,9 @@
-package definitions
+package open_interface
 
 import (
 	"context"
 	"errors"
 	"github.com/redresseur/flogging"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -37,14 +36,15 @@ type ChannelContext struct {
 	p2pMsgStream chan *Message
 
 	// 當前節點隊列
-	endpoints sync.Map
+	endpoints Storage
 }
 
-func WithChannelContext(ctx context.Context, info *ChannelInfo) *ChannelContext{
+func WithChannelContext(ctx context.Context, info *ChannelInfo, storage Storage) *ChannelContext{
 	cm := &ChannelContext{
 		info: info,
 		broadCastMsgStream: make(chan *Message, 1024),
 		p2pMsgStream: make(chan *Message, 1024),
+		endpoints: storage,
 	}
 
 	newCtx, cancel := context.WithCancel(ctx)
@@ -59,8 +59,8 @@ func (cc *ChannelContext)Cancel(){
 }
 
 func (cc *ChannelContext)EndPoint(endPointId string)*EndPoint{
-	cu, ok := cc.endpoints.Load(endPointId)
-	if !ok {
+	cu, err := cc.endpoints.Get(endPointId)
+	if err != nil {
 		return nil
 	}
 
@@ -77,13 +77,11 @@ func (cc *ChannelContext)AddEndPoint(point *EndPoint) error {
 
 	point.Ctx = ctx
 
-	cc.endpoints.Store(point.Id, point)
-
-	return nil
+	return cc.endpoints.Put(point.Id, point)
 }
 
 func (cc *ChannelContext)RemoveEndPoint(pointId string) {
-	if ep ,ok := cc.endpoints.Load(pointId); ok {
+	if ep ,err := cc.endpoints.Get(pointId); err == nil {
 		ep.(*EndPoint).Ctx.Value(ep).(context.CancelFunc)()
 		cc.endpoints.Delete(pointId)
 	}
@@ -95,6 +93,7 @@ func (cc *ChannelContext)BindRW(pointId string, rw EndPointIO) (context.Context,
 		return nil, ErrEndPointNotExisted
 	}
 
+	ep.RW = rw
 	return ep.Ctx, nil
 }
 

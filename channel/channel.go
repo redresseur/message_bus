@@ -3,7 +3,8 @@ package channel
 import (
 	"context"
 	"errors"
-	"github.com/redresseur/message_bus/definitions"
+	"github.com/redresseur/message_bus/open_interface"
+	"github.com/redresseur/message_bus/storage"
 	"sync"
 )
 
@@ -13,82 +14,86 @@ type channelHandlerImpl struct {
 	// 在内存中緩存所有channel信息
 	// TODO: 換爲redis
 	contexts sync.Map
+
+	storageHandler open_interface.StorageHandler
 }
 
-func NewChannelHandler(ctx context.Context) definitions.ChannelHandler  {
+func NewChannelHandler(ctx context.Context) open_interface.ChannelHandler  {
 	return &channelHandlerImpl{
 		ctx:ctx,
+		storageHandler: &storage.StorageHandlerImpl{},
 	}
 }
 
-func (ch *channelHandlerImpl) ExitChannel(channelId string, point *definitions.EndPoint) error {
+func (ch *channelHandlerImpl) ExitChannel(channelId string, point *open_interface.EndPoint) error {
 	cc, ok := ch.contexts.Load(channelId)
 	if ! ok {
-		return definitions.ErrChannelNotExisted
+		return open_interface.ErrChannelNotExisted
 	}
 
-	chCtx := cc.(*definitions.ChannelContext)
+	chCtx := cc.(*open_interface.ChannelContext)
 	chCtx.RemoveEndPoint(point.Id)
 
 	return nil
 }
 
-func (ch *channelHandlerImpl) ChildrenChannel(parentContext *definitions.ChannelContext,
-	childInfo *definitions.ChannelInfo, point *definitions.EndPoint) (*definitions.ChannelContext, error) {
+func (ch *channelHandlerImpl) ChildrenChannel(parentContext *open_interface.ChannelContext,
+	childInfo *open_interface.ChannelInfo, point *open_interface.EndPoint) (*open_interface.ChannelContext, error) {
 	// TODO: 待實現
 	return  nil, errors.New("implement me")
 }
 
-func (ch *channelHandlerImpl) Channel(channelId string) *definitions.ChannelContext {
+func (ch *channelHandlerImpl) Channel(channelId string) *open_interface.ChannelContext {
 	cc, _ := ch.contexts.Load(channelId)
-	return cc.(*definitions.ChannelContext)
+	return cc.(*open_interface.ChannelContext)
 }
 
-func (ch *channelHandlerImpl) CreateChannel(info *definitions.ChannelInfo, point *definitions.EndPoint) (*definitions.ChannelContext, error) {
+func (ch *channelHandlerImpl) CreateChannel(info *open_interface.ChannelInfo, point *open_interface.EndPoint) (*open_interface.ChannelContext, error) {
 	if _, ok := ch.contexts.Load(info.ChannelId); ok {
-		return nil, definitions.ErrChannelHasBeenExisted
+		return nil, open_interface.ErrChannelHasBeenExisted
 	}
 
-	cc := definitions.WithChannelContext(ch.ctx, info)
+	st, _ := ch.storageHandler.New(info.ChannelId)
+	cc := open_interface.WithChannelContext(ch.ctx, info, st)
 
 	point.IsCreator = true
 	return cc, cc.AddEndPoint(point)
 }
 
-func (ch *channelHandlerImpl) JoinChannel(channelId string, point *definitions.EndPoint) error {
+func (ch *channelHandlerImpl) JoinChannel(channelId string, point *open_interface.EndPoint) error {
 	cc , ok := ch.contexts.Load(channelId)
 	if ! ok{
-		return definitions.ErrChannelNotExisted
+		return open_interface.ErrChannelNotExisted
 	}
 
-	return cc.(*definitions.ChannelContext).AddEndPoint(point)
+	return cc.(*open_interface.ChannelContext).AddEndPoint(point)
 }
 
-func (ch *channelHandlerImpl) CloseChannel(channelId string, point *definitions.EndPoint) error {
+func (ch *channelHandlerImpl) CloseChannel(channelId string, point *open_interface.EndPoint) error {
 	cc , ok := ch.contexts.Load(channelId)
 	if ! ok{
 		return nil
 	}
 
 	// 检查身份
-	chCtx := cc.(*definitions.ChannelContext)
+	chCtx := cc.(*open_interface.ChannelContext)
 	if ep := chCtx.EndPoint(point.Id); ep != nil{
-		return definitions.ErrEndPointNotExisted
+		return open_interface.ErrEndPointNotExisted
 	}else if !ep.IsCreator{
-		return definitions.ErrIsNotCreator
+		return open_interface.ErrIsNotCreator
 	}
 
 	chCtx.Cancel()
 	return nil
 }
 
-func (ch *channelHandlerImpl) ListenChannel(channelId string, point *definitions.EndPoint)(context.Context, error) {
+func (ch *channelHandlerImpl) ListenChannel(channelId string, point *open_interface.EndPoint)(context.Context, error) {
 	cc , ok := ch.contexts.Load(channelId)
 	if ! ok{
-		return nil, definitions.ErrEndPointNotExisted
+		return nil, open_interface.ErrEndPointNotExisted
 	}
 
-	ctx, err := cc.(*definitions.ChannelContext).BindRW(point.Id, point.RW)
+	ctx, err := cc.(*open_interface.ChannelContext).BindRW(point.Id, point.RW)
 	if err != nil{
 		return nil, err
 	}

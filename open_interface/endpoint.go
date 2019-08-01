@@ -1,4 +1,4 @@
-package definitions
+package open_interface
 
 import (
 	"context"
@@ -37,9 +37,9 @@ type EndPoint struct {
 	// 當前節點的狀態
 	Status EndPointStatus `json:"status"`
 
-	Ctx context.Context `json:"ctx"`
+	Ctx context.Context `json:"_"`
 
-	RW EndPointIO `json:"rw"`
+	RW EndPointIO `json:"_"`
 }
 
 type EndPointGroup struct {

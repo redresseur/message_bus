@@ -2,14 +2,14 @@ package message
 
 import (
 	"errors"
-	"github.com/redresseur/message_bus/definitions"
+	"github.com/redresseur/message_bus/open_interface"
 )
 
 type messageHandlerImpl struct {
-	channelHandler definitions.ChannelHandler
+	channelHandler open_interface.ChannelHandler
 }
 
-func NewMessageHandler( ch definitions.ChannelHandler ) definitions.MessageHandler  {
+func NewMessageHandler( ch open_interface.ChannelHandler ) open_interface.MessageHandler  {
 	return &messageHandlerImpl{
 		channelHandler: ch,
 	}
@@ -18,10 +18,10 @@ func NewMessageHandler( ch definitions.ChannelHandler ) definitions.MessageHandl
 func (mh *messageHandlerImpl) SendMessageToEndpoint(payload interface{}, metadata []byte, channelId, dstEndPointId string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
-		return definitions.ErrChannelNotExisted
+		return open_interface.ErrChannelNotExisted
 	}
 
-	msg := &definitions.Message{}
+	msg := &open_interface.Message{}
 	msg.ChannelID = channelId
 	msg.DstEndPointId = dstEndPointId
 	msg.Payload = payload
@@ -33,10 +33,10 @@ func (mh *messageHandlerImpl) SendMessageToEndpoint(payload interface{}, metadat
 func (mh *messageHandlerImpl) SendMessageToAll(payload interface{}, metadata []byte, channelId string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
-		return definitions.ErrChannelNotExisted
+		return open_interface.ErrChannelNotExisted
 	}
 
-	return cc.SendMessage(&definitions.Message{
+	return cc.SendMessage(&open_interface.Message{
 		Payload: payload,
 		Metadata: metadata,
 		ChannelID: channelId,
@@ -46,11 +46,11 @@ func (mh *messageHandlerImpl) SendMessageToAll(payload interface{}, metadata []b
 func (mh *messageHandlerImpl) SendMessageToEndpoints(payload interface{}, metadata []byte, channelId string, points ... string) error {
 	cc := mh.channelHandler.Channel(channelId)
 	if cc != nil{
-		return definitions.ErrChannelNotExisted
+		return open_interface.ErrChannelNotExisted
 	}
 
 	for _, point := range points{
-		err := cc.SendMessage(&definitions.Message{
+		err := cc.SendMessage(&open_interface.Message{
 			DstEndPointId: point,
 			ChannelID: channelId,
 			Payload: payload,
