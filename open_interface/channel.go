@@ -68,8 +68,8 @@ func (cc *ChannelContext)EndPoint(endPointId string)*EndPoint{
 }
 
 func (cc *ChannelContext)AddEndPoint(point *EndPoint) error {
-	if cc.EndPoint(point.Id) != nil{
-		return ErrEndPointHasBeenExisted
+	if ep := cc.EndPoint(point.Id); ep != nil{
+		return nil
 	}
 	// 分配ctx给customer
 	ctx, cancel := context.WithCancel(cc.ctx)
