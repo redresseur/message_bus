@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/redresseur/flogging"
-	"sync/atomic"
+	"github.com/redresseur/message_bus/proto/message"
 	"time"
 )
 
@@ -24,27 +24,26 @@ type ChannelInfo struct {
 
 //	channel的上下文
 type ChannelContext struct {
-
 	info *ChannelInfo
 
 	ctx context.Context
 
 	// 廣播消息stream
-	broadCastMsgStream chan *Message
+	broadCastMsgStream chan *message.UnitMessage
 
 	// 點對點消息stream
-	p2pMsgStream chan *Message
+	p2pMsgStream chan *message.UnitMessage
 
 	// 當前節點隊列
 	endpoints Storage
 }
 
-func WithChannelContext(ctx context.Context, info *ChannelInfo, storage Storage) *ChannelContext{
+func WithChannelContext(ctx context.Context, info *ChannelInfo, storage Storage) *ChannelContext {
 	cm := &ChannelContext{
-		info: info,
-		broadCastMsgStream: make(chan *Message, 1024),
-		p2pMsgStream: make(chan *Message, 1024),
-		endpoints: storage,
+		info:               info,
+		broadCastMsgStream: make(chan *message.UnitMessage, 1024),
+		p2pMsgStream:       make(chan *message.UnitMessage, 1024),
+		endpoints:          storage,
 	}
 
 	newCtx, cancel := context.WithCancel(ctx)
@@ -54,11 +53,11 @@ func WithChannelContext(ctx context.Context, info *ChannelInfo, storage Storage)
 	return cm
 }
 
-func (cc *ChannelContext)Cancel(){
+func (cc *ChannelContext) Cancel() {
 	cc.ctx.Value(cc).(context.CancelFunc)()
 }
 
-func (cc *ChannelContext)EndPoint(endPointId string)*EndPoint{
+func (cc *ChannelContext) EndPoint(endPointId string) *EndPoint {
 	cu, err := cc.endpoints.Get(endPointId)
 	if err != nil {
 		return nil
@@ -67,8 +66,8 @@ func (cc *ChannelContext)EndPoint(endPointId string)*EndPoint{
 	return cu.(*EndPoint)
 }
 
-func (cc *ChannelContext)AddEndPoint(point *EndPoint) error {
-	if ep := cc.EndPoint(point.Id); ep != nil{
+func (cc *ChannelContext) AddEndPoint(point *EndPoint) error {
+	if ep := cc.EndPoint(point.Id); ep != nil {
 		return nil
 	}
 	// 分配ctx给customer
@@ -80,16 +79,16 @@ func (cc *ChannelContext)AddEndPoint(point *EndPoint) error {
 	return cc.endpoints.Put(point.Id, point)
 }
 
-func (cc *ChannelContext)RemoveEndPoint(pointId string) {
-	if ep ,err := cc.endpoints.Get(pointId); err == nil {
+func (cc *ChannelContext) RemoveEndPoint(pointId string) {
+	if ep, err := cc.endpoints.Get(pointId); err == nil {
 		ep.(*EndPoint).Ctx.Value(ep).(context.CancelFunc)()
 		cc.endpoints.Delete(pointId)
 	}
 }
 
-func (cc *ChannelContext)BindRW(pointId string, rw EndPointIO) (context.Context, error) {
+func (cc *ChannelContext) BindRW(pointId string, rw EndPointIO) (context.Context, error) {
 	ep := cc.EndPoint(pointId)
-	if ep == nil{
+	if ep == nil {
 		return nil, ErrEndPointNotExisted
 	}
 
@@ -97,15 +96,15 @@ func (cc *ChannelContext)BindRW(pointId string, rw EndPointIO) (context.Context,
 	return ep.Ctx, nil
 }
 
-func (cc *ChannelContext)endPointList() <-chan *EndPoint {
+func (cc *ChannelContext) endPointList() <-chan *EndPoint {
 	// 要用同步指针
 	output := make(chan *EndPoint, 1024)
 	go func() {
 		defer close(output)
-		cc.endpoints.Range(func(key, v interface{})bool{
+		cc.endpoints.Range(func(key, v interface{}) bool {
 			select {
 			case output <- v.(*EndPoint):
-			case <-time.After(100*time.Millisecond): // 100 毫秒的等待延时
+			case <-time.After(100 * time.Millisecond): // 100 毫秒的等待延时
 				return false
 			}
 
@@ -116,30 +115,33 @@ func (cc *ChannelContext)endPointList() <-chan *EndPoint {
 	return output
 }
 
-func (cc *ChannelContext)messageProcess(){
+func (cc *ChannelContext) messageProcess() {
 	for {
 		select {
 		case m, ok := <-cc.p2pMsgStream:
 			{
-				if !ok{
+				if !ok {
 					return
 				}
 
-				endPoint := cc.EndPoint(m.DstEndPointId)
-				if endPoint == nil{
+				endPoint := cc.EndPoint(m.DstEndPointId[0])
+				if endPoint == nil {
 					// 如果为空说明还没有建立监听
 					logger.Errorf("%s is not existed", m.DstEndPointId)
 					continue
 				}
 
-				if err := endPoint.RW.Write(m.Payload); err != nil{
+				// 增加计数
+				endPoint.l.Lock()
+				m.Seq = endPoint.Sequence
+				m.Ack = endPoint.Ack
+				if err := endPoint.RW.Write(m); err != nil {
 					logger.Errorf("Write Message Failure: %v", err)
 				}
-
-				// 增加计数
-				atomic.AddUint64(&endPoint.Sequence, 1)
+				endPoint.Sequence++
+				endPoint.l.Unlock()
 			}
-		case m, ok := <- cc.broadCastMsgStream:
+		case m, ok := <-cc.broadCastMsgStream:
 			{
 				if !ok {
 					return
@@ -152,12 +154,15 @@ func (cc *ChannelContext)messageProcess(){
 						break
 					}
 
-					if err := endPoint.RW.Write(m.Payload); err != nil{
+					endPoint.l.Lock()
+					m.Seq = endPoint.Sequence
+					m.Ack = endPoint.Ack
+					if err := endPoint.RW.Write(m); err != nil {
 						logger.Errorf("Write Message Failure: %v", err)
 					}
-
 					// 增加计数
-					atomic.AddUint64(&endPoint.Sequence, 1)
+					endPoint.Sequence++
+					endPoint.l.Unlock()
 				}
 
 			}
@@ -169,56 +174,62 @@ func (cc *ChannelContext)messageProcess(){
 	return
 }
 
+func (cc *ChannelContext) SendMessage(msg *message.UnitMessage) error {
+	var send func(*message.UnitMessage) error
 
-func (cc *ChannelContext)SendMessage(message *Message) error {
-	var send func(*Message)error
-	if message.DstEndPointId != ""{
-		send = func (p2pMessage *Message)(p2pErr error){
-			defer func() {
-				res := recover()
-				if err, ok := res.(error); ok {
-					p2pErr = err
-				}else if _, ok = res.(string); ok{
-					p2pErr = errors.New(res.(string))
+	switch msg.Type {
+	case message.UnitMessage_BroadCast:
+		{
+			send = func(broadcastMessage *message.UnitMessage) (broadCastErr error) {
+				defer func() {
+					res := recover()
+					if err, ok := res.(error); ok {
+						broadCastErr = err
+					} else if _, ok = res.(string); ok {
+						broadCastErr = errors.New(res.(string))
+					}
+				}()
+
+				// 设置5秒的超时时间
+				ctx, _ := context.WithTimeout(cc.ctx, 5*time.Second)
+				select {
+				case cc.broadCastMsgStream <- broadcastMessage:
+				case <-ctx.Done():
+					return errors.New("the send time out")
 				}
-			}()
 
-			// 设置5秒的超时时间
-			ctx, _ := context.WithTimeout(cc.ctx, 5*time.Second)
-			select {
-			case cc.p2pMsgStream <- p2pMessage:
-			case <-ctx.Done():
-				return errors.New("the send time out")
+				return nil
 			}
-
-			return
 		}
-	}else {
-		send = func (broadcastMessage *Message)(broadCastErr error){
-			defer func() {
-				res := recover()
-				if err, ok := res.(error); ok {
-					broadCastErr = err
-				}else if _, ok = res.(string); ok{
-					broadCastErr = errors.New(res.(string))
+	case message.UnitMessage_PointToPoint:
+		{
+			send = func(p2pMessage *message.UnitMessage) (p2pErr error) {
+				defer func() {
+					res := recover()
+					if err, ok := res.(error); ok {
+						p2pErr = err
+					} else if _, ok = res.(string); ok {
+						p2pErr = errors.New(res.(string))
+					}
+				}()
+
+				// 设置5秒的超时时间
+				ctx, _ := context.WithTimeout(cc.ctx, 5*time.Second)
+				select {
+				case cc.p2pMsgStream <- p2pMessage:
+				case <-ctx.Done():
+					return errors.New("the send time out")
 				}
-			}()
 
-			// 设置5秒的超时时间
-			ctx, _ := context.WithTimeout(cc.ctx, 5*time.Second)
-			select {
-			case cc.broadCastMsgStream <- broadcastMessage:
-			case <-ctx.Done():
-				return errors.New("the send time out")
+				return
 			}
-
-			return
 		}
+	default:
+		return errors.New("send type is not supported")
 	}
 
-	return send(message)
+	return send(msg)
 }
-
 
 type ChannelHandler interface {
 	// 创建一个channel
@@ -234,10 +245,10 @@ type ChannelHandler interface {
 	ListenChannel(channelId string, point *EndPoint) (context.Context, error)
 
 	// 开启一个子channel
-	ChildrenChannel(parentContext *ChannelContext, childInfo *ChannelInfo, point *EndPoint)(*ChannelContext, error)
+	ChildrenChannel(parentContext *ChannelContext, childInfo *ChannelInfo, point *EndPoint) (*ChannelContext, error)
 
 	// 退出一个channel
-	ExitChannel(channelId string, point *EndPoint)error
+	ExitChannel(channelId string, point *EndPoint) error
 
 	// 获取channel context
 	Channel(channelId string) *ChannelContext

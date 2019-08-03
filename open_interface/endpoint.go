@@ -2,30 +2,31 @@ package open_interface
 
 import (
 	"context"
+	"github.com/redresseur/message_bus/proto/message"
+	"sync"
 )
 
 type EndPointStatus string
 
 const (
-	Online EndPointStatus = `online`
+	Online  EndPointStatus = `online`
 	Offline EndPointStatus = `offline`
-	Ready EndPointStatus = `ready`
+	Ready   EndPointStatus = `ready`
 )
 
 type EndPointIO interface {
-	Write(p interface{}) (error)
-	Read() (interface{}, error)
+	Write(message *message.UnitMessage) error
+	Read() (*message.UnitMessage, error)
 }
 
 type EmptyEndPointIO struct {
-
 }
 
-func (e *EmptyEndPointIO) Write(p interface{}) (error) {
+func (e *EmptyEndPointIO) Write(message *message.UnitMessage) error {
 	return nil
 }
 
-func (e *EmptyEndPointIO) Read() (interface{}, error) {
+func (e *EmptyEndPointIO) Read() (*message.UnitMessage, error) {
 	return nil, nil
 }
 
@@ -38,10 +39,10 @@ type EndPoint struct {
 	CacheEnable bool `json:"cacheEnable"`
 
 	// 当前消息序列
-	Sequence uint64 `json:"sequence"`
+	Sequence uint32 `json:"sequence"`
 
 	// 当前应答序列
-	Ack uint64 `json:"ack"`
+	Ack uint32 `json:"ack"`
 
 	// 是否为channel的创建者
 	IsCreator bool `json:"isCreator"`
@@ -52,6 +53,8 @@ type EndPoint struct {
 	Ctx context.Context `json:"_"`
 
 	RW EndPointIO `json:"_"`
+
+	l sync.Mutex `json:"_"`
 }
 
 type EndPointGroup struct {
@@ -60,5 +63,4 @@ type EndPointGroup struct {
 
 	// 節點隊列
 	points []*EndPoint
-
 }

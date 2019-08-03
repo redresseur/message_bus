@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package redresseur.message_bus;
+option go_package = "github.com/redresseur/message_bus/proto/message";
+import "timestamp/timestamp.proto";
+
+message UnitMessage {
+    enum MessageFlag{
+        COMMON = 0;
+        SYNC = 1;
+        HEART_BEAT = 2;
+        REAL_TIME = 3;
+        CLOSE = 11;
+    }
+
+    enum MessageType{
+        BroadCast = 0;
+        PointToPoint = 1;
+        Group = 2;
+    }
+
+    string ChannelId = 1;
+    string SrcEndPointId = 2;
+    repeated string DstEndPointId = 3;
+    MessageFlag Flag = 4;
+    MessageType Type = 5;
+    uint32 Seq = 6;
+    uint32 Ack = 7;
+    bytes Payload = 8;
+    bytes Metadata = 9;
+    google.protobuf.Timestamp timestamp = 10;
+}
