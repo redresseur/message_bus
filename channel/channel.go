@@ -72,6 +72,10 @@ func (ch *channelHandlerImpl) JoinChannel(channelId string, point *open_interfac
 		return open_interface.ErrChannelNotExisted
 	}
 
+	if point.RW == nil {
+		point.RW = &open_interface.EmptyEndPointIO{}
+	}
+
 	return cc.(*open_interface.ChannelContext).AddEndPoint(point)
 }
 
