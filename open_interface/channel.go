@@ -68,13 +68,21 @@ func (cc *ChannelContext) EndPoint(endPointId string) *EndPoint {
 
 func (cc *ChannelContext) AddEndPoint(point *EndPoint) error {
 	if ep := cc.EndPoint(point.Id); ep != nil {
+		// 关闭原有的rw handler
+		ep.Ctx.Value(ep).(context.CancelFunc)()
 		return nil
 	}
+
 	// 分配ctx给customer
 	ctx, cancel := context.WithCancel(cc.ctx)
 	ctx = context.WithValue(ctx, point, cancel)
 
 	point.Ctx = ctx
+
+	// 判断是否开启缓存
+	if point.CacheEnable && point.Cache == nil {
+		return errors.New("the cache is nil")
+	}
 
 	return cc.endpoints.Put(point.Id, point)
 }
@@ -133,6 +141,10 @@ func (cc *ChannelContext) messageProcess() {
 
 				// 增加计数
 				endPoint.l.Lock()
+				if endPoint.CacheEnable {
+					endPoint.Cache.Push(m)
+				}
+
 				m.Seq = endPoint.Sequence
 				m.Ack = endPoint.Ack
 				if err := endPoint.RW.Write(m); err != nil {
@@ -155,6 +167,10 @@ func (cc *ChannelContext) messageProcess() {
 					}
 
 					endPoint.l.Lock()
+					if endPoint.CacheEnable {
+						endPoint.Cache.Push(m)
+					}
+
 					m.Seq = endPoint.Sequence
 					m.Ack = endPoint.Ack
 					if err := endPoint.RW.Write(m); err != nil {

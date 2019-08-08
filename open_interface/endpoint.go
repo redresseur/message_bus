@@ -35,9 +35,6 @@ type EndPoint struct {
 	// 节点的ID, 唯一识别符
 	Id string `json:"id"`
 
-	// 是否开启消息缓存
-	CacheEnable bool `json:"cacheEnable"`
-
 	// 当前消息序列
 	Sequence uint32 `json:"sequence"`
 
@@ -53,6 +50,11 @@ type EndPoint struct {
 	Ctx context.Context `json:"_"`
 
 	RW EndPointIO `json:"_"`
+
+	// 是否开启消息缓存
+	CacheEnable bool `json:"cacheEnable"`
+
+	Cache QueueRW `json:"_"`
 
 	l sync.Mutex `json:"_"`
 }
