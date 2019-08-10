@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/redresseur/flogging"
 	"github.com/redresseur/message_bus/proto/message"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,6 +102,11 @@ func (cc *ChannelContext) BindRW(pointId string, rw EndPointIO) (context.Context
 	}
 
 	ep.RW = rw
+
+	// 启动一个协程，用来接收消息
+	go func() {
+
+	}()
 	return ep.Ctx, nil
 }
 
@@ -123,6 +129,59 @@ func (cc *ChannelContext) endPointList() <-chan *EndPoint {
 	return output
 }
 
+func (cc *ChannelContext) recvMsgFromEndPoint(point *EndPoint) {
+	for {
+		msg, err := point.RW.Read()
+		if err != nil {
+			logger.Errorf("Recv message from %s: %v", point.Id, err)
+			break
+		}
+
+		// 检查ack 和 seq
+		// 如果msg.ack 大于 point.seq， 说明对方串包了
+		if msg.Ack > atomic.LoadUint32(&point.Sequence) {
+			logger.Warnf("Ack %d greater than Seq %d", msg.Ack, point.Sequence)
+			continue
+		}
+
+		// msg.seq 小于 point.ack, 说明对方重复发包了
+		if msg.Seq < atomic.LoadUint32(&point.Ack) {
+			continue
+		}
+
+		// ack 累计增长
+		atomic.AddUint32(&point.Ack, 1)
+
+		switch msg.Flag {
+		// 心跳包
+		case message.UnitMessage_HEART_BEAT:
+
+		}
+	}
+}
+
+func (cc *ChannelContext) sendMsgToEndPoint(point *EndPoint, msg *message.UnitMessage) {
+	// 增加计数
+	point.l.Lock()
+	defer point.l.Unlock()
+
+	msg.Seq = atomic.LoadUint32(&point.Sequence)
+	msg.Ack = point.Ack
+	if err := point.RW.Write(msg); err != nil {
+		logger.Errorf("Write Message Failure: %v", err)
+	}
+
+	atomic.AddUint32(&point.Sequence, 1)
+
+	// 添加到缓存中
+	// 目前除了普通消息外都不缓存
+	if point.CacheEnable {
+		if msg.Flag == message.UnitMessage_COMMON {
+			point.Cache.Push(msg)
+		}
+	}
+}
+
 func (cc *ChannelContext) messageProcess() {
 	for {
 		select {
@@ -139,19 +198,7 @@ func (cc *ChannelContext) messageProcess() {
 					continue
 				}
 
-				// 增加计数
-				endPoint.l.Lock()
-				if endPoint.CacheEnable {
-					endPoint.Cache.Push(m)
-				}
-
-				m.Seq = endPoint.Sequence
-				m.Ack = endPoint.Ack
-				if err := endPoint.RW.Write(m); err != nil {
-					logger.Errorf("Write Message Failure: %v", err)
-				}
-				endPoint.Sequence++
-				endPoint.l.Unlock()
+				cc.sendMsgToEndPoint(endPoint, m)
 			}
 		case m, ok := <-cc.broadCastMsgStream:
 			{
@@ -166,19 +213,7 @@ func (cc *ChannelContext) messageProcess() {
 						break
 					}
 
-					endPoint.l.Lock()
-					if endPoint.CacheEnable {
-						endPoint.Cache.Push(m)
-					}
-
-					m.Seq = endPoint.Sequence
-					m.Ack = endPoint.Ack
-					if err := endPoint.RW.Write(m); err != nil {
-						logger.Errorf("Write Message Failure: %v", err)
-					}
-					// 增加计数
-					endPoint.Sequence++
-					endPoint.l.Unlock()
+					cc.sendMsgToEndPoint(endPoint, m)
 				}
 
 			}
