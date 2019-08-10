@@ -8,29 +8,32 @@ import (
 
 type queueImpl struct {
 	cacheLock sync.Mutex
-	cache map[uint64]interface{}
+	cache     map[uint64]interface{}
 
 	// 当前索引地址
-	index  uint64
+	index uint64
 
 	// 最新消息的地址
 	// 此地址对应的数据永远为空
 	latest uint64
 
+	signalEnable bool
+
 	signal chan open_interface.QueueSignal
 }
 
-func NewQueueRW() open_interface.QueueRW {
+func NewQueueRW(signalEnable bool) open_interface.QueueRW {
 	return &queueImpl{
-		index: 0,
-		latest: 0,
-		signal: make(chan open_interface.QueueSignal, 1024),
-		cache: map[uint64]interface{}{},
+		signalEnable: signalEnable,
+		index:        0,
+		latest:       0,
+		signal:       make(chan open_interface.QueueSignal, 1024),
+		cache:        map[uint64]interface{}{},
 	}
 }
 
 func (qi *queueImpl) Push(data interface{}) (uint64, error) {
-	var(
+	var (
 		index uint64
 	)
 
@@ -41,17 +44,19 @@ func (qi *queueImpl) Push(data interface{}) (uint64, error) {
 	qi.cache[qi.latest] = data
 	qi.latest++
 
-	go func() {
-		qi.signal <- 0
-	}()
+	if qi.signalEnable {
+		go func() {
+			qi.signal <- 0
+		}()
+	}
 
 	return index, nil
 }
 
 func (qi *queueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error) {
 	var (
-		res = []interface{}{}
-		err error
+		res      = []interface{}{}
+		err      error
 		endIndex uint64
 	)
 
@@ -60,27 +65,29 @@ func (qi *queueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error)
 
 	if qi.latest < beginIndex {
 		err = errors.New("queue seek over range")
-	}else {
+	} else {
 
-		if offset < 0 || (beginIndex + uint64(offset)) > qi.latest{
+		if offset < 0 || (beginIndex+uint64(offset)) > qi.latest {
 			endIndex = qi.latest
+		} else {
+			endIndex = beginIndex + uint64(offset)
 		}
 
 		var i = beginIndex
-		for ; i <= endIndex; i++{
-			if v, ok := qi.cache[i]; ok{
+		for ; i <= endIndex; i++ {
+			if v, ok := qi.cache[i]; ok {
 				res = append(res, v)
 			}
+			// 移动索引地址
+			// 放在外面会多移动一个地址
+			qi.index = i
 		}
-
-		// 移动索引地址
-		qi.index = i
 	}
 
 	return res, err
 }
 
-func (qi *queueImpl) Single() (<-chan open_interface.QueueSignal) {
+func (qi *queueImpl) Single() <-chan open_interface.QueueSignal {
 	return qi.signal
 }
 
@@ -95,28 +102,28 @@ func (qi *queueImpl) Next(remove bool) (interface{}, error) {
 
 	if v, ok := qi.cache[qi.index]; ok {
 		res = v
-		if remove{
-			qi.cache[qi.index] = nil
+		if remove {
+			delete(qi.cache, qi.index)
 		}
 
 		qi.index++
-	}else {
+	} else {
 		err = errors.New("unexcepted EOF")
 	}
 
 	return res, err
 }
 
-func (qi *queueImpl) Remove(beginIndex, endIndex int32) (error) {
-	var(
+func (qi *queueImpl) Remove(beginIndex, endIndex int32) error {
+	var (
 		start uint64 = 0
-		end uint64 = 0
+		end   uint64 = 0
 	)
 
 	qi.cacheLock.Lock()
 	defer qi.cacheLock.Unlock()
 
-	if beginIndex < 0 && endIndex < 0{
+	if beginIndex < 0 && endIndex < 0 {
 		return errors.New("the range is illegal")
 	}
 
@@ -126,25 +133,25 @@ func (qi *queueImpl) Remove(beginIndex, endIndex int32) (error) {
 
 	if beginIndex > 0 {
 		start = uint64(beginIndex)
-		if endIndex < 0{
+		if endIndex < 0 {
 			end = qi.latest
-		}else if endIndex - beginIndex < 0{
+		} else if endIndex-beginIndex < 0 {
 			return errors.New("the range is illegal")
 		} else {
 			end = uint64(endIndex)
 		}
-	}else {
+	} else {
 		end = uint64(endIndex)
 	}
 
-	for i := start; i <= end; i++{
+	for i := start; i <= end; i++ {
 		delete(qi.cache, i)
 	}
 
 	return nil
 }
 
-func (qi *queueImpl) Reset() (error) {
+func (qi *queueImpl) Reset() error {
 	qi.cacheLock.Lock()
 	defer qi.cacheLock.Unlock()
 
@@ -154,7 +161,10 @@ func (qi *queueImpl) Reset() (error) {
 	close(qi.signal)
 
 	qi.cache = map[uint64]interface{}{}
-	qi.signal = make(chan open_interface.QueueSignal, 1024)
+
+	if qi.signalEnable {
+		qi.signal = make(chan open_interface.QueueSignal, 1024)
+	}
 
 	return nil
 }
