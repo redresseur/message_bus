@@ -10,6 +10,8 @@ const (
 	EventJoinChannel EventType = "join_channel"
 	EventListenChannel EventType = "listen_channel"
 	EventExitChannel EventType = "exit_channel"
+	
+	EventConnectBroken EventType = "conn_broken"
 )
 
 type Event struct {
