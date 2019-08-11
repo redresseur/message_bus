@@ -4,7 +4,7 @@ type QueueSignal uint8
 
 type QueueReader interface {
 	// 查询从beginIndex 位置长度为 offset 的数据
-	Seek(beginIndex uint64, offset int8)([]interface{}, error)
+	Seek(beginIndex uint64, offset uint32)([]interface{}, error)
 
 	// 消息队列更新的信号
 	Single()(<- chan QueueSignal)

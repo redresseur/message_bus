@@ -59,6 +59,10 @@ type EndPoint struct {
 	l sync.Mutex `json:"_"`
 }
 
+func (e *EndPoint)Locker() sync.Locker {
+	return &e.l
+}
+
 type EndPointGroup struct {
 	// 節點組的id
 	Id string

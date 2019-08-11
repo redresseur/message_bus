@@ -53,7 +53,7 @@ func (qi *queueImpl) Push(data interface{}) (uint64, error) {
 	return index, nil
 }
 
-func (qi *queueImpl) Seek(beginIndex uint64, offset int8) ([]interface{}, error) {
+func (qi *queueImpl) Seek(beginIndex uint64, offset uint32) ([]interface{}, error) {
 	var (
 		res      = []interface{}{}
 		err      error
