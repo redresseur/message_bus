@@ -93,6 +93,20 @@ func (cc *channelContextImpl) BindRW(pointId string, rw open_interface.EndPointI
 
 	ep.RW = rw
 
+	// 判断是否需要启动心跳
+	if ep.KeepAliveEnable {
+		if ep.Keeper != nil {
+			ep.Keeper.Finish()
+		}
+
+		deathFunc := func() {
+			// 心跳超时则移除该节点
+			cc.RemoveEndPoint(ep.Id)
+		}
+		ep.Keeper = open_interface.NewKeeper(ep.Ctx, ep.HeartBeatDuration, deathFunc)
+		go ep.Keeper.Run()
+	}
+
 	// 启动一个协程，用来接收消息
 	go cc.recvMsgFromEndPoint(ep)
 	return ep.Ctx, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/redresseur/message_bus/proto/message"
 	"sync"
+	"time"
 )
 
 type EndPointStatus string
@@ -55,6 +56,13 @@ type EndPoint struct {
 	CacheEnable bool `json:"cacheEnable"`
 
 	Cache QueueRW `json:"_"`
+
+	// 是否开启心跳
+	KeepAliveEnable bool `json:"keepAliveEnable"`
+
+	HeartBeatDuration time.Duration `json:"heartBeatDuration"`
+
+	Keeper *KeepAlive `json:"_"`
 
 	l sync.Mutex `json:"_"`
 }
