@@ -48,7 +48,7 @@ type ChannelHandler interface {
 	ListenChannel(channelId string, point *EndPoint) (context.Context, error)
 
 	// 开启一个子channel
-	ChildrenChannel(parentContext *ChannelContext, childInfo *ChannelInfo, point *EndPoint) (ChannelContext, error)
+	ChildrenChannel(parentContext ChannelContext, childInfo *ChannelInfo, point *EndPoint) (ChannelContext, error)
 
 	// 退出一个channel
 	ExitChannel(channelId string, point *EndPoint) error

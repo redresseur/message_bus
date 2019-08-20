@@ -23,9 +23,10 @@ type KeepAlive struct {
 
 func NewKeeper(ctx context.Context, heartBeatDuration time.Duration, deathFunc DeathFunc) *KeepAlive {
 	res := &KeepAlive{
-		deadLine:  time.Now().Add(heartBeatDuration),
-		ctx:       ctx,
-		deathFunc: deathFunc,
+		deadLine:          time.Now().Add(heartBeatDuration),
+		ctx:               ctx,
+		deathFunc:         deathFunc,
+		heartBeatDuration: heartBeatDuration,
 	}
 
 	newCtx, cancel := context.WithCancel(ctx)
