@@ -139,6 +139,10 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 			break
 		}
 
+		if point.KeepAliveEnable && point.Keeper != nil {
+			point.Keeper.Update()
+		}
+
 		// 检查ack 和 seq
 		// 如果msg.ack 大于 point.seq， 说明对方串包了
 		if msg.Ack > atomic.LoadUint32(&point.Sequence) {
@@ -152,30 +156,36 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 		}
 
 		// ack 累计增长
-		atomic.AddUint32(&point.Ack, 1)
-
 		switch msg.Flag {
 		// 心跳包
 		case message.UnitMessage_HEART_BEAT:
 			// TODO: 更新心跳状态
+			atomic.AddUint32(&point.Ack, 1)
 		case message.UnitMessage_REAL_TIME:
 			// TODO: 发送消息
+			atomic.AddUint32(&point.Ack, 1)
 		case message.UnitMessage_SYNC:
 			{
+				// ack 累计
+				atomic.AddUint32(&point.Ack, 1)
+				// 移除已经确认的消息
+				point.Cache.Remove(-1, int32(msg.Ack)-1)
+
 				if msg.Ack == point.Sequence {
 					break
 				}
 
 				offset := uint32(point.Sequence - msg.Ack - 1)
-				beginIndex := uint64(msg.Ack + 1)
+				beginIndex := uint64(msg.Ack) // cache的起始值为0
 				res, err := point.Cache.Seek(beginIndex, offset)
 				if err != nil {
 					logger.Warningf("Seek from %d offset %d: %v", msg.Ack, offset, err)
 				}
 
+				reMsgSeq := uint32(msg.Ack + 1)
 				for _, v := range res {
 					unitMsg := v.(*message.UnitMessage)
-					cc.sendMsgToEndPoint(point, &message.UnitMessage{
+					cc.reSendMsgToEndPoint(point, &message.UnitMessage{
 						ChannelId:     unitMsg.ChannelId,
 						SrcEndPointId: unitMsg.SrcEndPointId,
 						DstEndPointId: unitMsg.DstEndPointId,
@@ -184,15 +194,31 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 						Metadata:      unitMsg.Metadata,
 						Payload:       unitMsg.Payload,
 						// TODO: 更新时间戳
-					})
+					}, reMsgSeq)
+
+					reMsgSeq++
 				}
 
 				// 移除消息，避免重复
-				point.Cache.Remove(int32(beginIndex), int32(beginIndex+uint64(offset)))
+				// point.Cache.Remove(int32(beginIndex), int32(beginIndex+uint64(offset)))
 			}
 		case message.UnitMessage_COMMON:
 			// TODO: 发送消息
+			atomic.AddUint32(&point.Ack, 1)
 		}
+	}
+}
+
+// 重发
+func (cc *channelContextImpl) reSendMsgToEndPoint(point *open_interface.EndPoint, msg *message.UnitMessage, seq uint32) {
+	// 增加计数
+	point.Locker().Lock()
+	defer point.Locker().Unlock()
+
+	msg.Seq = seq
+	msg.Ack = atomic.LoadUint32(&point.Ack)
+	if err := point.RW.Write(msg); err != nil {
+		logger.Errorf("Write Message Failure: %v", err)
 	}
 }
 
@@ -202,7 +228,7 @@ func (cc *channelContextImpl) sendMsgToEndPoint(point *open_interface.EndPoint, 
 	defer point.Locker().Unlock()
 
 	msg.Seq = atomic.LoadUint32(&point.Sequence)
-	msg.Ack = point.Ack
+	msg.Ack = atomic.LoadUint32(&point.Ack)
 	if err := point.RW.Write(msg); err != nil {
 		logger.Errorf("Write Message Failure: %v", err)
 	}

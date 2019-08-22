@@ -141,6 +141,7 @@ func (qi *queueImpl) Remove(beginIndex, endIndex int32) error {
 			end = uint64(endIndex)
 		}
 	} else {
+		start = qi.index
 		end = uint64(endIndex)
 	}
 
