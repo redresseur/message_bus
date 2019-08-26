@@ -66,7 +66,6 @@ func (qi *queueImpl) Seek(beginIndex uint64, offset uint32) ([]interface{}, erro
 	if qi.latest < beginIndex {
 		err = errors.New("queue seek over range")
 	} else {
-
 		if offset < 0 || (beginIndex+uint64(offset)) > qi.latest {
 			endIndex = qi.latest
 		} else {
@@ -127,7 +126,7 @@ func (qi *queueImpl) Remove(beginIndex, endIndex int32) error {
 		return errors.New("the range is illegal")
 	}
 
-	if uint64(beginIndex) > qi.latest || uint64(endIndex) > qi.latest {
+	if (beginIndex > 0 && uint64(beginIndex) > qi.latest) || uint64(endIndex) > qi.latest {
 		return errors.New("the range is illegal")
 	}
 

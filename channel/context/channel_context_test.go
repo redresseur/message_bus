@@ -35,9 +35,16 @@ func newChanEndpointIO() (in, out *chanEndpointIO) {
 	return
 }
 
-func (ci *chanEndpointIO) Write(msg *message.UnitMessage) error {
+func (ci *chanEndpointIO) Write(msg *message.UnitMessage) (wErr error) {
+	defer func() {
+		r := recover()
+		if err, ok := r.(error); ok {
+			wErr = err
+		}
+	}()
+
 	ci.sendCh <- msg
-	return nil
+	return wErr
 }
 
 func (ci *chanEndpointIO) Read() (*message.UnitMessage, error) {

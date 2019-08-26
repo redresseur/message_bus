@@ -26,10 +26,22 @@ type channelContextImpl struct {
 
 	// 當前節點隊列
 	endpoints open_interface.Storage
+
+	catchMsgFuncs map[message.UnitMessage_MessageFlag]CatchMsgFunc
+}
+
+func WithCatchMsgFunc(messageFlag message.UnitMessage_MessageFlag, msgFunc CatchMsgFunc) func(impl *channelContextImpl) {
+	return func(impl *channelContextImpl) {
+		if impl.catchMsgFuncs == nil {
+			impl.catchMsgFuncs = map[message.UnitMessage_MessageFlag]CatchMsgFunc{}
+		}
+
+		impl.catchMsgFuncs[messageFlag] = msgFunc
+	}
 }
 
 func WithChannelContext(ctx context.Context, info *open_interface.ChannelInfo,
-	storage open_interface.Storage) open_interface.ChannelContext {
+	storage open_interface.Storage, ops ...func(impl *channelContextImpl)) open_interface.ChannelContext {
 	cm := &channelContextImpl{
 		info:               info,
 		broadCastMsgStream: make(chan *message.UnitMessage, 1024),
@@ -37,11 +49,27 @@ func WithChannelContext(ctx context.Context, info *open_interface.ChannelInfo,
 		endpoints:          storage,
 	}
 
+	for _, op := range ops {
+		op(cm)
+	}
+
 	newCtx, cancel := context.WithCancel(ctx)
 	cm.ctx = context.WithValue(newCtx, cm, cancel)
 
 	go cm.messageProcess()
 	return cm
+}
+
+func (cc *channelContextImpl) catch(messageFlag message.UnitMessage_MessageFlag) CatchMsgFunc {
+	var res CatchMsgFunc = func(unitMessage *message.UnitMessage) error {
+		return nil
+	}
+
+	if c, ok := cc.catchMsgFuncs[messageFlag]; ok {
+		res = c
+	}
+
+	return res
 }
 
 func (cc *channelContextImpl) Cancel() {
@@ -61,7 +89,6 @@ func (cc *channelContextImpl) AddEndPoint(point *open_interface.EndPoint) error 
 	if ep := cc.EndPoint(point.Id); ep != nil {
 		// 关闭原有的rw handler
 		ep.Ctx.Value(ep).(context.CancelFunc)()
-		return nil
 	}
 
 	// 分配ctx给customer
@@ -75,6 +102,8 @@ func (cc *channelContextImpl) AddEndPoint(point *open_interface.EndPoint) error 
 		return errors.New("the cache is nil")
 	}
 
+	// 初始化的序列号为1
+	point.Sequence = 1
 	return cc.endpoints.Put(point.Id, point)
 }
 
@@ -151,7 +180,7 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 		}
 
 		// msg.seq 小于 point.ack, 说明对方重复发包了
-		if msg.Seq < atomic.LoadUint32(&point.Ack) {
+		if msg.Seq <= atomic.LoadUint32(&point.Ack) {
 			continue
 		}
 
@@ -198,13 +227,14 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 
 					reMsgSeq++
 				}
-
-				// 移除消息，避免重复
-				// point.Cache.Remove(int32(beginIndex), int32(beginIndex+uint64(offset)))
 			}
 		case message.UnitMessage_COMMON:
-			// TODO: 发送消息
 			atomic.AddUint32(&point.Ack, 1)
+		}
+
+		// 在末尾添加自定义处理
+		if err := cc.catch(msg.Flag)(msg); err != nil {
+			logger.Warningf("catch the common message: %v", err)
 		}
 	}
 }

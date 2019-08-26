@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const ReopenMax = 5
+
 type CatchMsgFunc func(unitMessage *message.UnitMessage) error
 
 // 重连函数
@@ -21,7 +23,7 @@ type ChannelContextClient struct {
 	// 客户端信息
 	endPoint open_interface.EndPoint
 
-	catchSet map[message.UnitMessage_MessageType]CatchMsgFunc
+	catchSet map[message.UnitMessage_MessageFlag]CatchMsgFunc
 
 	reConnFunc Reopen
 
@@ -39,14 +41,24 @@ type ChannelContextClient struct {
 func (cc *ChannelContextClient) Bind(rw open_interface.EndPointIO) error {
 	cc.endPoint.RW = rw
 	go cc.worker()
+
+	if cc.autoSyncOpen {
+		go cc.sync()
+	}
+
 	return nil
 }
 
 func (cc *ChannelContextClient) SendMsg(unitMessage *message.UnitMessage) error {
 	unitMessage.Seq = atomic.LoadUint32(&cc.endPoint.Sequence)
 	unitMessage.Ack = atomic.LoadUint32(&cc.endPoint.Ack)
-	defer atomic.AddUint32(&cc.endPoint.Sequence, 1)
-	return cc.SendMsg(unitMessage)
+	unitMessage.SrcEndPointId = cc.endPoint.Id
+	if err := cc.endPoint.RW.Write(unitMessage); err != nil{
+		return err
+	}
+
+	atomic.AddUint32(&cc.endPoint.Sequence, 1)
+	return nil
 }
 
 func (cc *ChannelContextClient) sync() {
@@ -59,15 +71,11 @@ func (cc *ChannelContextClient) sync() {
 			return
 		case <-ticker.C:
 			{
-				syncMsg := &message.UnitMessage{
-					ChannelId: cc.channelId,
+				cc.SendMsg(&message.UnitMessage{
+					ChannelId:     cc.channelId,
 					SrcEndPointId: cc.endPoint.Id,
-					Flag: message.UnitMessage_SYNC,
-					Seq: atomic.LoadUint32(&cc.endPoint.Sequence),
-					Ack: atomic.LoadUint32(&cc.endPoint.Ack),
-				}
-
-				cc.endPoint.RW.Write(syncMsg)
+					Flag:          message.UnitMessage_SYNC,
+				})
 			}
 		}
 	}
@@ -112,17 +120,19 @@ func (cc *ChannelContextClient) worker() {
 			break
 		}
 		// 检查序列号
-		if msg.Seq <= cc.endPoint.Ack {
+		if msg.Seq <= atomic.LoadUint32(&cc.endPoint.Ack) {
 			// 消息已经处理过，忽略
 			continue
 		}
 
-		if msg.Ack > cc.endPoint.Sequence {
+		if msg.Ack > atomic.LoadUint32(&cc.endPoint.Sequence) {
 			// 异常消息，忽略
 			continue
 		}
 
-		if catch, ok := cc.catchSet[msg.Type]; ok {
+		atomic.StoreUint32(&cc.endPoint.Ack, msg.Seq)
+
+		if catch, ok := cc.catchSet[msg.Flag]; ok {
 			if err = catch(msg); err != nil {
 				logger.Warningf("Catch Message %v", err)
 			}
