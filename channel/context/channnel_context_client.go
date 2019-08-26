@@ -36,6 +36,24 @@ type ChannelContextClient struct {
 	channelId string
 }
 
+func NewChannelContextClient(ctx context.Context, channelId string) *ChannelContextClient {
+	res := &ChannelContextClient{
+		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
+		reopenMax:    ReopenMax,
+		autoSyncOpen: true,
+		channelId:    channelId,
+	}
+
+	// 初始化的序列号为1
+	res.endPoint.Sequence = 1
+
+	ctx, cancel := context.WithCancel(ctx)
+	ctx = context.WithValue(ctx, res, cancel)
+
+	res.ctx = ctx
+	return res
+}
+
 // 绑定读写io
 // 只能调用一次
 func (cc *ChannelContextClient) Bind(rw open_interface.EndPointIO) error {
@@ -53,12 +71,16 @@ func (cc *ChannelContextClient) SendMsg(unitMessage *message.UnitMessage) error 
 	unitMessage.Seq = atomic.LoadUint32(&cc.endPoint.Sequence)
 	unitMessage.Ack = atomic.LoadUint32(&cc.endPoint.Ack)
 	unitMessage.SrcEndPointId = cc.endPoint.Id
-	if err := cc.endPoint.RW.Write(unitMessage); err != nil{
+	if err := cc.endPoint.RW.Write(unitMessage); err != nil {
 		return err
 	}
 
 	atomic.AddUint32(&cc.endPoint.Sequence, 1)
 	return nil
+}
+
+func (cc *ChannelContextClient) Close() {
+	cc.ctx.Value(cc).(context.CancelFunc)()
 }
 
 func (cc *ChannelContextClient) sync() {
