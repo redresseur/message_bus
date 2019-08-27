@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	ccctx *ChannelContextClient
-	once  sync.Once
+	ccctx    *ChannelContextClient
+	once     sync.Once
+	autoSync = true
 )
 
 func clientTestInitial() {
@@ -23,7 +24,7 @@ func clientTestInitial() {
 		ctx:          context.Background(),
 		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
 		reopenMax:    ReopenMax,
-		autoSyncOpen: true,
+		autoSyncOpen: autoSync,
 		channelId:    "test",
 	}
 
@@ -153,4 +154,54 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 	assert.NoError(t, err)
 
 	assert.EqualValues(t, 0, len(cache))
+}
+
+func TestChannelContextImpl_Keepalive(t *testing.T) {
+	autoSync = false
+	once.Do(clientTestInitial)
+
+	cctx = WithChannelContext(context.Background(), &open_interface.ChannelInfo{
+		ChannelId: "test",
+	}, &storage.StorageImpl{},
+		WithCatchMsgFunc(message.UnitMessage_SYNC, func(unitMessage *message.UnitMessage) error {
+			log.Printf("recv sync message: %v", unitMessage)
+			return nil
+		}),
+		WithCatchMsgFunc(message.UnitMessage_COMMON, func(unitMessage *message.UnitMessage) error {
+			log.Printf("recv command message: %v", unitMessage)
+			return nil
+		}))
+
+	client, srv := newChanEndpointIO()
+
+	// 绑定服务端
+	cctx.AddEndPoint(&open_interface.EndPoint{
+		Id:                "test_point",
+		CacheEnable:       true,
+		Cache:             queue.NewQueueRW(false),
+		Sequence:          1,
+		KeepAliveEnable:   true,
+		HeartBeatDuration: time.Second * 3,
+	})
+
+	cctx.BindRW("test_point", srv)
+	ccctx.Bind(client)
+
+	time.Sleep(time.Second * 2)
+	ccctx.SendMsg(&message.UnitMessage{
+		ChannelId: "test",
+		Flag:      message.UnitMessage_COMMON,
+		Type:      message.UnitMessage_BroadCast,
+		Payload:   []byte("hello world!"),
+	})
+
+	time.Sleep(time.Second * 7)
+	ccctx.SendMsg(&message.UnitMessage{
+		ChannelId: "test",
+		Flag:      message.UnitMessage_COMMON,
+		Type:      message.UnitMessage_BroadCast,
+		Payload:   []byte("hello world!"),
+	})
+
+	time.Sleep(time.Second * 2)
 }
