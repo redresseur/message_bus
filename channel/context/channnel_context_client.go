@@ -36,11 +36,11 @@ type ChannelContextClient struct {
 	channelId string
 }
 
-func NewChannelContextClient(ctx context.Context, channelId string) *ChannelContextClient {
+func NewChannelContextClient(ctx context.Context, channelId string, autoSync bool, reopen Reopen) *ChannelContextClient {
 	res := &ChannelContextClient{
 		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
 		reopenMax:    ReopenMax,
-		autoSyncOpen: true,
+		autoSyncOpen: autoSync,
 		channelId:    channelId,
 	}
 
@@ -49,9 +49,14 @@ func NewChannelContextClient(ctx context.Context, channelId string) *ChannelCont
 
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, res, cancel)
-
+	res.reConnFunc = reopen
 	res.ctx = ctx
+
 	return res
+}
+
+func (cc *ChannelContextClient)SetCatchMsgFunc(flag message.UnitMessage_MessageFlag, msgFunc CatchMsgFunc){
+	cc.catchSet[flag] = msgFunc
 }
 
 // 绑定读写io
@@ -84,8 +89,8 @@ func (cc *ChannelContextClient) Close() {
 }
 
 func (cc *ChannelContextClient) sync() {
-	// 每隔5秒同步一次
-	ticker := time.NewTicker(5 * time.Second)
+	// 每隔2秒同步一次
+	ticker := time.NewTicker(2 * time.Second)
 	for {
 		// 判断上下文是否有效
 		select {

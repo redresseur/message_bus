@@ -163,7 +163,7 @@ func (cc *channelContextImpl) endPointList() <-chan *open_interface.EndPoint {
 func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint) {
 	for {
 		msg, err := point.RW.Read()
-		if err != nil {
+		if err != nil || point.Ctx.Err() != nil {
 			logger.Errorf("Recv message from %s: %v", point.Id, err)
 			break
 		}

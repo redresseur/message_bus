@@ -101,7 +101,7 @@ func (ch *channelHandlerImpl) CloseChannel(channelId string, point *open_interfa
 func (ch *channelHandlerImpl) ListenChannel(channelId string, point *open_interface.EndPoint) (context.Context, error) {
 	cc, ok := ch.contexts.Load(channelId)
 	if !ok {
-		return nil, open_interface.ErrEndPointNotExisted
+		return nil, open_interface.ErrChannelNotExisted
 	}
 
 	ctx, err := cc.(open_interface.ChannelContext).BindRW(point.Id, point.RW)
