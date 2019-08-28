@@ -213,18 +213,18 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 
 				reMsgSeq := uint32(msg.Ack + 1)
 				for _, v := range res {
-					unitMsg := v.(*message.UnitMessage)
-					cc.reSendMsgToEndPoint(point, &message.UnitMessage{
-						ChannelId:     unitMsg.ChannelId,
-						SrcEndPointId: unitMsg.SrcEndPointId,
-						DstEndPointId: unitMsg.DstEndPointId,
-						Flag:          unitMsg.Flag,
-						Type:          unitMsg.Type,
-						Metadata:      unitMsg.Metadata,
-						Payload:       unitMsg.Payload,
-						// TODO: 更新时间戳
-					}, reMsgSeq)
-
+					if unitMsg, ok := v.(*message.UnitMessage); ok {
+						cc.reSendMsgToEndPoint(point, &message.UnitMessage{
+							ChannelId:     unitMsg.ChannelId,
+							SrcEndPointId: unitMsg.SrcEndPointId,
+							DstEndPointId: unitMsg.DstEndPointId,
+							Flag:          unitMsg.Flag,
+							Type:          unitMsg.Type,
+							Metadata:      unitMsg.Metadata,
+							Payload:       unitMsg.Payload,
+							// TODO: 更新时间戳
+						}, reMsgSeq)
+					}
 					reMsgSeq++
 				}
 			}
@@ -270,6 +270,8 @@ func (cc *channelContextImpl) sendMsgToEndPoint(point *open_interface.EndPoint, 
 	if point.CacheEnable {
 		if msg.Flag == message.UnitMessage_COMMON {
 			point.Cache.Push(msg)
+		}else {
+			point.Cache.Push(nil)
 		}
 	}
 }
