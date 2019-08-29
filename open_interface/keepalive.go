@@ -2,7 +2,12 @@ package open_interface
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	ErrHeartBeatTimeOut = errors.New("heart beating was time out")
 )
 
 type DeathFunc func()

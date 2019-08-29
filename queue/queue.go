@@ -72,8 +72,7 @@ func (qi *queueImpl) Seek(beginIndex uint64, offset uint32) ([]interface{}, erro
 			endIndex = beginIndex + uint64(offset)
 		}
 
-		var i = beginIndex
-		for ; i <= endIndex; i++ {
+		for i := beginIndex; i <= endIndex; i++ {
 			if v, ok := qi.cache[i]; ok {
 				res = append(res, v)
 			}
@@ -147,7 +146,6 @@ func (qi *queueImpl) Remove(beginIndex, endIndex int32) error {
 	for i := start; i <= end; i++ {
 		delete(qi.cache, i)
 	}
-
 	return nil
 }
 

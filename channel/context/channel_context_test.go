@@ -85,11 +85,10 @@ func TestMessageSync(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		msg, err := client.Read()
-		if err != nil{
+		if err != nil {
 			t.Fatalf("read msg: %v", err)
 		}
 
 		t.Logf("msg: %v", *msg)
 	}
-
 }

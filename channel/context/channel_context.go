@@ -6,11 +6,17 @@ import (
 	"github.com/redresseur/flogging"
 	"github.com/redresseur/message_bus/open_interface"
 	"github.com/redresseur/message_bus/proto/message"
+	"math/bits"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
 
 var logger = flogging.MustGetLogger("channel.context")
+
+const (
+	HeartBeat = `HEART_BEAT`
+)
 
 //	channel的上下文
 type channelContextImpl struct {
@@ -93,7 +99,7 @@ func (cc *channelContextImpl) AddEndPoint(point *open_interface.EndPoint) error 
 
 	// 分配ctx给customer
 	ctx, cancel := context.WithCancel(cc.ctx)
-	ctx = context.WithValue(ctx, point, cancel)
+	ctx, _ = WithMultiValueContext(ctx, point, cancel)
 
 	point.Ctx = ctx
 
@@ -130,6 +136,7 @@ func (cc *channelContextImpl) BindRW(pointId string, rw open_interface.EndPointI
 
 		deathFunc := func() {
 			// 心跳超时则移除该节点
+			UpdateMultiValueContext(cc.ctx, HeartBeat, open_interface.ErrHeartBeatTimeOut)
 			cc.RemoveEndPoint(ep.Id)
 		}
 		ep.Keeper = open_interface.NewKeeper(ep.Ctx, ep.HeartBeatDuration, deathFunc)
@@ -198,35 +205,32 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 				// ack 累计
 				atomic.AddUint32(&point.Ack, 1)
 				// 移除已经确认的消息
-				point.Cache.Remove(-1, int32(msg.Ack)-1)
-
-				if msg.Ack == point.Sequence {
+				stableUint64, err := strconv.ParseUint(string(msg.Payload), 10, bits.UintSize)
+				if err != nil {
+					logger.Errorf("the payload of sync message: %v is not uint type", string(msg.Payload))
 					break
 				}
 
-				offset := uint32(point.Sequence - msg.Ack - 1)
-				beginIndex := uint64(msg.Ack) // cache的起始值为0
+				stable := uint32(stableUint64)
+				point.Cache.Remove(-1, int32(stable))
+
+				offset := uint32(point.Sequence - stable)
+				beginIndex := stableUint64 // cache的起始值为0,所以此處不加1
 				res, err := point.Cache.Seek(beginIndex, offset)
 				if err != nil {
 					logger.Warningf("Seek from %d offset %d: %v", msg.Ack, offset, err)
+					break
 				}
 
-				reMsgSeq := uint32(msg.Ack + 1)
+
 				for _, v := range res {
 					if unitMsg, ok := v.(*message.UnitMessage); ok {
-						cc.reSendMsgToEndPoint(point, &message.UnitMessage{
-							ChannelId:     unitMsg.ChannelId,
-							SrcEndPointId: unitMsg.SrcEndPointId,
-							DstEndPointId: unitMsg.DstEndPointId,
-							Flag:          unitMsg.Flag,
-							Type:          unitMsg.Type,
-							Metadata:      unitMsg.Metadata,
-							Payload:       unitMsg.Payload,
-							// TODO: 更新时间戳
-						}, reMsgSeq)
+						// TODO: 更新时间戳
+						cc.reSendMsgToEndPoint(point, unitMsg)
 					}
-					reMsgSeq++
 				}
+
+				point.Cache.Seek(beginIndex, 0)
 			}
 		case message.UnitMessage_COMMON:
 			atomic.AddUint32(&point.Ack, 1)
@@ -240,12 +244,12 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 }
 
 // 重发
-func (cc *channelContextImpl) reSendMsgToEndPoint(point *open_interface.EndPoint, msg *message.UnitMessage, seq uint32) {
+func (cc *channelContextImpl) reSendMsgToEndPoint(point *open_interface.EndPoint, msg *message.UnitMessage) {
 	// 增加计数
 	point.Locker().Lock()
 	defer point.Locker().Unlock()
 
-	msg.Seq = seq
+	//msg.Seq = seq
 	msg.Ack = atomic.LoadUint32(&point.Ack)
 	if err := point.RW.Write(msg); err != nil {
 		logger.Errorf("Write Message Failure: %v", err)
@@ -270,7 +274,7 @@ func (cc *channelContextImpl) sendMsgToEndPoint(point *open_interface.EndPoint, 
 	if point.CacheEnable {
 		if msg.Flag == message.UnitMessage_COMMON {
 			point.Cache.Push(msg)
-		}else {
+		} else {
 			point.Cache.Push(nil)
 		}
 	}

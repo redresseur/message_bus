@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/redresseur/message_bus/open_interface"
 	"github.com/redresseur/message_bus/proto/message"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
@@ -33,14 +34,36 @@ type ChannelContextClient struct {
 	// 自动同步消息
 	autoSyncOpen bool
 
+	syncDuration time.Duration
+
 	channelId string
+
+	// 确认已经收到的消息序列号
+	stable uint32
 }
 
-func NewChannelContextClient(ctx context.Context, channelId string, autoSync bool, reopen Reopen) *ChannelContextClient {
+func WithSyncConfig(autoSync bool, syncDuration time.Duration) func(client *ChannelContextClient) {
+	return func(client *ChannelContextClient) {
+		client.autoSyncOpen = autoSync
+		client.syncDuration = syncDuration
+	}
+}
+
+// 输入自定义的重启函数和最多尝试次数
+// 注意：最大重启次数是只一次断连的过程中
+// 最多能尝试次数
+func WithReopenFunc(reopen Reopen, reopenMax uint8) func(client *ChannelContextClient) {
+	return func(client *ChannelContextClient) {
+		client.reConnFunc = reopen
+		client.reopenMax = reopenMax
+	}
+}
+
+func NewChannelContextClient(ctx context.Context, channelId string, ops ...func(client *ChannelContextClient)) *ChannelContextClient {
 	res := &ChannelContextClient{
 		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
 		reopenMax:    ReopenMax,
-		autoSyncOpen: autoSync,
+		autoSyncOpen: false,
 		channelId:    channelId,
 	}
 
@@ -49,13 +72,16 @@ func NewChannelContextClient(ctx context.Context, channelId string, autoSync boo
 
 	ctx, cancel := context.WithCancel(ctx)
 	ctx = context.WithValue(ctx, res, cancel)
-	res.reConnFunc = reopen
 	res.ctx = ctx
+
+	for _, op := range ops {
+		op(res)
+	}
 
 	return res
 }
 
-func (cc *ChannelContextClient)SetCatchMsgFunc(flag message.UnitMessage_MessageFlag, msgFunc CatchMsgFunc){
+func (cc *ChannelContextClient) SetCatchMsgFunc(flag message.UnitMessage_MessageFlag, msgFunc CatchMsgFunc) {
 	cc.catchSet[flag] = msgFunc
 }
 
@@ -88,9 +114,21 @@ func (cc *ChannelContextClient) Close() {
 	cc.ctx.Value(cc).(context.CancelFunc)()
 }
 
+func (cc *ChannelContextClient) sendSync() {
+	cc.SendMsg(&message.UnitMessage{
+		ChannelId:     cc.channelId,
+		SrcEndPointId: cc.endPoint.Id,
+		Flag:          message.UnitMessage_SYNC,
+		Payload:       []byte(strconv.FormatUint(uint64(cc.stable), 10)),
+	})
+}
+
 func (cc *ChannelContextClient) sync() {
+	// 启动时先同步一次
+	cc.sendSync()
+
 	// 每隔2秒同步一次
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(cc.syncDuration)
 	for {
 		// 判断上下文是否有效
 		select {
@@ -98,11 +136,7 @@ func (cc *ChannelContextClient) sync() {
 			return
 		case <-ticker.C:
 			{
-				cc.SendMsg(&message.UnitMessage{
-					ChannelId:     cc.channelId,
-					SrcEndPointId: cc.endPoint.Id,
-					Flag:          message.UnitMessage_SYNC,
-				})
+				cc.sendSync()
 			}
 		}
 	}
@@ -146,22 +180,37 @@ func (cc *ChannelContextClient) worker() {
 			}
 			break
 		}
-		// 检查序列号
-		if msg.Seq <= atomic.LoadUint32(&cc.endPoint.Ack) {
-			// 消息已经处理过，忽略
-			continue
-		}
 
 		if msg.Ack > atomic.LoadUint32(&cc.endPoint.Sequence) {
 			// 异常消息，忽略
 			continue
 		}
 
-		atomic.StoreUint32(&cc.endPoint.Ack, msg.Seq)
+		// 检查序列号
+		if msg.Seq <= atomic.LoadUint32(&cc.stable) {
+			// 消息已经处理过，忽略
+			continue
+		} else if msg.Seq <= atomic.LoadUint32(&cc.endPoint.Ack) {
+			// 重傳的消息，此時直接把確實收到的消息序列號變成收到的序列號
+			atomic.StoreUint32(&cc.stable, msg.Seq)
+			// 重傳的實時數據直接丟棄掉
+			if catch, ok := cc.catchSet[msg.Flag]; ok && msg.Flag != message.UnitMessage_REAL_TIME {
+				if err = catch(msg); err != nil {
+					logger.Warningf("Catch Message %v", err)
+				}
+			}
+		} else if msg.Seq > atomic.LoadUint32(&cc.endPoint.Ack) {
+			atomic.StoreUint32(&cc.endPoint.Ack, msg.Seq)
 
-		if catch, ok := cc.catchSet[msg.Flag]; ok {
-			if err = catch(msg); err != nil {
-				logger.Warningf("Catch Message %v", err)
+			// 实时数据直接执行
+			if msg.Flag != message.UnitMessage_REAL_TIME && !atomic.CompareAndSwapUint32(&cc.stable, msg.Seq-1, msg.Seq) {
+				cc.sendSync()
+			} else {
+				if catch, ok := cc.catchSet[msg.Flag]; ok {
+					if err = catch(msg); err != nil {
+						logger.Warningf("Catch Message %v", err)
+					}
+				}
 			}
 		}
 	}

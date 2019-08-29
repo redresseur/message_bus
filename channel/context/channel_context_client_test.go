@@ -25,6 +25,7 @@ func clientTestInitial() {
 		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
 		reopenMax:    ReopenMax,
 		autoSyncOpen: autoSync,
+		syncDuration: 2*time.Second,
 		channelId:    "test",
 	}
 
@@ -124,8 +125,11 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 	}
 
 	ccctx.reConnFunc = reopen
+
+	counter :=0
 	ccctx.catchSet[message.UnitMessage_COMMON] = func(unitMessage *message.UnitMessage) error {
-		log.Printf("recv comman message: %v", unitMessage)
+		counter++
+		log.Printf("recv comman message %d from srv: %v", counter, unitMessage)
 		return nil
 	}
 
@@ -136,7 +140,7 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 	}()
 
 	for i := 1; i < 2048; i++ {
-		assert.NoError(t, ccctx.SendMsg(&message.UnitMessage{
+		assert.NoError(t, cctx.SendMessage(&message.UnitMessage{
 			ChannelId: "test",
 			Flag:      message.UnitMessage_COMMON,
 			Type:      message.UnitMessage_BroadCast,
