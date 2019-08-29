@@ -212,7 +212,7 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 				}
 
 				stable := uint32(stableUint64)
-				point.Cache.Remove(-1, int32(stable))
+				point.Cache.Remove(-1, int32(stable-1)) // cache的起始值为0,所以此處减1
 
 				offset := uint32(point.Sequence - stable)
 				beginIndex := stableUint64 // cache的起始值为0,所以此處不加1
@@ -221,7 +221,6 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 					logger.Warningf("Seek from %d offset %d: %v", msg.Ack, offset, err)
 					break
 				}
-
 
 				for _, v := range res {
 					if unitMsg, ok := v.(*message.UnitMessage); ok {

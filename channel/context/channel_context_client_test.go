@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"fmt"
 	"github.com/redresseur/message_bus/open_interface"
 	"github.com/redresseur/message_bus/proto/message"
 	"github.com/redresseur/message_bus/queue"
@@ -25,7 +26,7 @@ func clientTestInitial() {
 		catchSet:     map[message.UnitMessage_MessageFlag]CatchMsgFunc{},
 		reopenMax:    ReopenMax,
 		autoSyncOpen: autoSync,
-		syncDuration: 2*time.Second,
+		syncDuration: 2 * time.Second,
 		channelId:    "test",
 	}
 
@@ -126,10 +127,17 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 
 	ccctx.reConnFunc = reopen
 
-	counter :=0
+	commanCounter := 0
 	ccctx.catchSet[message.UnitMessage_COMMON] = func(unitMessage *message.UnitMessage) error {
-		counter++
-		log.Printf("recv comman message %d from srv: %v", counter, unitMessage)
+		commanCounter++
+		log.Printf("recv comman message %d from srv: %v", commanCounter, unitMessage)
+		return nil
+	}
+
+	realTimeCounter := 0
+	ccctx.catchSet[message.UnitMessage_REAL_TIME] = func(unitMessage *message.UnitMessage) error {
+		realTimeCounter++
+		log.Printf("recv real-time message %d from srv: %v", realTimeCounter, unitMessage)
 		return nil
 	}
 
@@ -137,17 +145,35 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 		time.Sleep(1 * time.Second)
 		close(ccctx.endPoint.RW.(*chanEndpointIO).recvCh)
 		close(ccctx.endPoint.RW.(*chanEndpointIO).sendCh)
+
+		time.Sleep(3 * time.Second)
+		close(ccctx.endPoint.RW.(*chanEndpointIO).recvCh)
+		close(ccctx.endPoint.RW.(*chanEndpointIO).sendCh)
 	}()
 
-	for i := 1; i < 2048; i++ {
+	go func() {
+		for i := 1; i < 4096; i++ {
+			assert.NoError(t, cctx.SendMessage(&message.UnitMessage{
+				ChannelId:     "test",
+				Flag:          message.UnitMessage_REAL_TIME,
+				Type:          message.UnitMessage_PointToPoint,
+				DstEndPointId: []string{"test_point"},
+				Payload:       []byte(fmt.Sprintf("RealTime Message: %d", i)),
+			}))
+
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	for i := 1; i < 4096; i++ {
 		assert.NoError(t, cctx.SendMessage(&message.UnitMessage{
 			ChannelId: "test",
 			Flag:      message.UnitMessage_COMMON,
 			Type:      message.UnitMessage_BroadCast,
-			Payload:   []byte("hello world!"),
+			Payload:   []byte(fmt.Sprintf("Comman Message: %d", i)),
 		}))
 
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 
 	time.Sleep(6 * time.Second)
@@ -157,7 +183,9 @@ func TestChannelContextClient_Reopen(t *testing.T) {
 	cache, err := endPoint.Cache.Seek(0, 10000)
 	assert.NoError(t, err)
 
-	assert.EqualValues(t, 0, len(cache))
+	if ! assert.EqualValues(t, 0, len(cache)){
+		t.Log(cache...)
+	}
 }
 
 func TestChannelContextImpl_Keepalive(t *testing.T) {
@@ -196,7 +224,7 @@ func TestChannelContextImpl_Keepalive(t *testing.T) {
 		ChannelId: "test",
 		Flag:      message.UnitMessage_COMMON,
 		Type:      message.UnitMessage_BroadCast,
-		Payload:   []byte("hello world!"),
+		Payload:   []byte(fmt.Sprintf("hello world!")),
 	})
 
 	time.Sleep(time.Second * 7)

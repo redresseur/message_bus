@@ -203,7 +203,8 @@ func (cc *ChannelContextClient) worker() {
 			atomic.StoreUint32(&cc.endPoint.Ack, msg.Seq)
 
 			// 实时数据直接执行
-			if msg.Flag != message.UnitMessage_REAL_TIME && !atomic.CompareAndSwapUint32(&cc.stable, msg.Seq-1, msg.Seq) {
+			ok := atomic.CompareAndSwapUint32(&cc.stable, msg.Seq-1, msg.Seq)
+			if msg.Flag != message.UnitMessage_REAL_TIME && !ok {
 				cc.sendSync()
 			} else {
 				if catch, ok := cc.catchSet[msg.Flag]; ok {
