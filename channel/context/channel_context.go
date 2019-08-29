@@ -136,7 +136,7 @@ func (cc *channelContextImpl) BindRW(pointId string, rw open_interface.EndPointI
 
 		deathFunc := func() {
 			// 心跳超时则移除该节点
-			UpdateMultiValueContext(cc.ctx, HeartBeat, open_interface.ErrHeartBeatTimeOut)
+			UpdateMultiValueContext(ep.Ctx, HeartBeat, open_interface.ErrHeartBeatTimeOut)
 			cc.RemoveEndPoint(ep.Id)
 		}
 		ep.Keeper = open_interface.NewKeeper(ep.Ctx, ep.HeartBeatDuration, deathFunc)
