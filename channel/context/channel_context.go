@@ -222,11 +222,27 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 					break
 				}
 
-				for _, v := range res {
-					if unitMsg, ok := v.(*message.UnitMessage); ok {
-						// TODO: 更新时间戳
-						cc.reSendMsgToEndPoint(point, unitMsg)
+				//如果最后的消息是实时消息，要替换为一个同步消息
+				lenSeek := len(res)
+				if lenSeek >0 {
+					for _, v := range res[:lenSeek - 1] {
+						if unitMsg, ok := v.(*message.UnitMessage); ok {
+							// TODO: 更新时间戳
+							cc.reSendMsgToEndPoint(point, unitMsg)
+						}
 					}
+
+					latest, ok := res[lenSeek - 1].(*message.UnitMessage)
+					if !ok {
+						latest = &message.UnitMessage{
+							ChannelId: msg.ChannelId,
+							DstEndPointId: []string{msg.SrcEndPointId},
+							Flag: message.UnitMessage_SYNC,
+							Seq: stable + uint32(lenSeek),
+						}
+					}
+
+					cc.reSendMsgToEndPoint(point, latest)
 				}
 
 				point.Cache.Seek(beginIndex, 0)
