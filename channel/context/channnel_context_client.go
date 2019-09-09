@@ -2,6 +2,7 @@ package context
 
 import (
 	"context"
+	"errors"
 	"github.com/redresseur/message_bus/open_interface"
 	"github.com/redresseur/message_bus/proto/message"
 	"strconv"
@@ -9,7 +10,17 @@ import (
 	"time"
 )
 
-const ReopenMax = 5
+const (
+	ReopenMax      = 5
+	SyncState      = "sync_state"
+	SendState      = "send_state"
+	RecvState      = "recv_state"
+	TransportState = "transport_state"
+)
+
+var (
+	ErrReopenFailure = errors.New("Reopen Transport failure")
+)
 
 type CatchMsgFunc func(unitMessage *message.UnitMessage) error
 
@@ -71,8 +82,7 @@ func NewChannelContextClient(ctx context.Context, channelId string, ops ...func(
 	res.endPoint.Sequence = 1
 
 	ctx, cancel := context.WithCancel(ctx)
-	ctx = context.WithValue(ctx, res, cancel)
-	res.ctx = ctx
+	res.ctx, _ = WithMultiValueContext(ctx, res, cancel)
 
 	for _, op := range ops {
 		op(res)
@@ -103,6 +113,7 @@ func (cc *ChannelContextClient) SendMsg(unitMessage *message.UnitMessage) error 
 	unitMessage.Ack = atomic.LoadUint32(&cc.endPoint.Ack)
 	unitMessage.SrcEndPointId = cc.endPoint.Id
 	if err := cc.endPoint.RW.Write(unitMessage); err != nil {
+		UpdateMultiValueContext(cc.ctx, SendState, err)
 		return err
 	}
 
@@ -114,8 +125,8 @@ func (cc *ChannelContextClient) Close() {
 	cc.ctx.Value(cc).(context.CancelFunc)()
 }
 
-func (cc *ChannelContextClient) sendSync() {
-	cc.SendMsg(&message.UnitMessage{
+func (cc *ChannelContextClient) sendSync() error {
+	return cc.SendMsg(&message.UnitMessage{
 		ChannelId:     cc.channelId,
 		SrcEndPointId: cc.endPoint.Id,
 		Flag:          message.UnitMessage_SYNC,
@@ -125,7 +136,9 @@ func (cc *ChannelContextClient) sendSync() {
 
 func (cc *ChannelContextClient) sync() {
 	// 启动时先同步一次
-	cc.sendSync()
+	if err := cc.sendSync(); err != nil {
+		UpdateMultiValueContext(cc.ctx, SyncState, err)
+	}
 
 	// 每隔2秒同步一次
 	ticker := time.NewTicker(cc.syncDuration)
@@ -140,6 +153,17 @@ func (cc *ChannelContextClient) sync() {
 			}
 		}
 	}
+}
+
+func (cc *ChannelContextClient) Done() <-chan struct{} {
+	return cc.ctx.Done()
+}
+
+func (cc *ChannelContextClient) GetErr(state string) error {
+	if err, ok := cc.ctx.Value(state).(error); ok {
+		return err
+	}
+	return nil
 }
 
 // 当断开时，触发重连机制
@@ -162,10 +186,14 @@ func (cc *ChannelContextClient) reopen() {
 				// 重连成功后，恢复工作协程
 				cc.endPoint.RW = rw
 				go cc.worker()
-				return
 			}
 		}
 	}
+
+	// 更新状态并结束当前的context生命周期
+	UpdateMultiValueContext(cc.ctx, TransportState, ErrReopenFailure)
+	cc.ctx.Value(cc).(context.CancelFunc)()
+	return
 }
 
 // 接受消息，以协程的方式启动
@@ -174,8 +202,12 @@ func (cc *ChannelContextClient) worker() {
 		msg, err := cc.endPoint.RW.Read()
 		if err != nil {
 			logger.Errorf("Client read message: %v", err)
+			UpdateMultiValueContext(cc.ctx, RecvState, err)
 			// 判断当前上下文是否有效
-			if err := cc.ctx.Err(); err == nil {
+			select {
+			case <-cc.ctx.Done():
+				logger.Debugf("Client Context is canceled, Worker finish.")
+			default:
 				cc.reopen()
 			}
 			break
