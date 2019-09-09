@@ -186,6 +186,7 @@ func (cc *ChannelContextClient) reopen() {
 				// 重连成功后，恢复工作协程
 				cc.endPoint.RW = rw
 				go cc.worker()
+				return
 			}
 		}
 	}
