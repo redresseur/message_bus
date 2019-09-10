@@ -95,6 +95,8 @@ func (cc *channelContextImpl) AddEndPoint(point *open_interface.EndPoint) error 
 	if ep := cc.EndPoint(point.Id); ep != nil {
 		// 关闭原有的rw handler
 		ep.Ctx.Value(ep).(context.CancelFunc)()
+		cc.endpoints.Delete(point.Id)
+
 	}
 
 	// 分配ctx给customer
@@ -224,21 +226,21 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 
 				//如果最后的消息是实时消息，要替换为一个同步消息
 				lenSeek := len(res)
-				if lenSeek >0 {
-					for _, v := range res[:lenSeek - 1] {
+				if lenSeek > 0 {
+					for _, v := range res[:lenSeek-1] {
 						if unitMsg, ok := v.(*message.UnitMessage); ok {
 							// TODO: 更新时间戳
 							cc.reSendMsgToEndPoint(point, unitMsg)
 						}
 					}
 
-					latest, ok := res[lenSeek - 1].(*message.UnitMessage)
+					latest, ok := res[lenSeek-1].(*message.UnitMessage)
 					if !ok {
 						latest = &message.UnitMessage{
-							ChannelId: msg.ChannelId,
+							ChannelId:     msg.ChannelId,
 							DstEndPointId: []string{msg.SrcEndPointId},
-							Flag: message.UnitMessage_SYNC,
-							Seq: stable + uint32(lenSeek),
+							Flag:          message.UnitMessage_SYNC,
+							Seq:           stable + uint32(lenSeek),
 						}
 					}
 
