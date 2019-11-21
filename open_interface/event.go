@@ -12,6 +12,7 @@ const (
 	EventExitChannel EventType = "exit_channel"
 	
 	EventConnectBroken EventType = "conn_broken"
+	EventConnectException EventType = "conn_exception"
 )
 
 type Event struct {
