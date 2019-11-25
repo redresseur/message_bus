@@ -42,6 +42,10 @@ type ChannelContextClient struct {
 	// 默认重连次数为5次
 	reopenMax uint8
 
+	// 重連超時時間,如果為0則為infinity
+	// 默認為infinity
+	reopenTimeout time.Duration
+
 	// 自动同步消息
 	autoSyncOpen bool
 
@@ -60,13 +64,14 @@ func WithSyncConfig(autoSync bool, syncDuration time.Duration) func(client *Chan
 	}
 }
 
-// 输入自定义的重启函数和最多尝试次数
+// 输入自定义的重启函数，最多尝试次数 和 最大重连等待时间
 // 注意：最大重启次数是只一次断连的过程中
 // 最多能尝试次数
-func WithReopenFunc(reopen Reopen, reopenMax uint8) func(client *ChannelContextClient) {
+func WithReopenFunc(reopen Reopen, reopenMax uint8, duration time.Duration) func(client *ChannelContextClient) {
 	return func(client *ChannelContextClient) {
 		client.reConnFunc = reopen
 		client.reopenMax = reopenMax
+		client.reopenTimeout = duration
 	}
 }
 
@@ -166,16 +171,24 @@ func (cc *ChannelContextClient) GetErr(state string) error {
 	return nil
 }
 
-// 当断开时，触发重连机制
-func (cc *ChannelContextClient) reopen() {
+func (cc *ChannelContextClient) reopenWithTimeOut() {
 	if cc.reConnFunc == nil {
 		return
 	}
 
+	timeOut := time.After(cc.reopenTimeout)
 	for i := uint8(0); i < cc.reopenMax; i++ {
 		select {
 		case <-cc.ctx.Done():
-			return
+			{
+				logger.Errorf("Reopen Failure: Context Done")
+				goto ReopenWithTimeOutEnd
+			}
+		case <-timeOut:
+			{
+				logger.Errorf("Reopen Failure: Time out")
+				goto ReopenWithTimeOutEnd
+			}
 		case rw, ok := <-cc.reConnFunc():
 			{
 				if !ok {
@@ -191,7 +204,41 @@ func (cc *ChannelContextClient) reopen() {
 		}
 	}
 
-	// 更新状态并结束当前的context生命周期
+ReopenWithTimeOutEnd:
+	UpdateMultiValueContext(cc.ctx, TransportState, ErrReopenFailure)
+	cc.ctx.Value(cc).(context.CancelFunc)()
+	return
+}
+
+// 当断开时，触发重连机制
+func (cc *ChannelContextClient) reopen() {
+	if cc.reConnFunc == nil {
+		return
+	}
+
+	for i := uint8(0); i < cc.reopenMax; i++ {
+		select {
+		case <-cc.ctx.Done():
+			{
+				logger.Errorf("Reopen Failure: Context Done")
+				goto ReopenEnd
+			}
+		case rw, ok := <-cc.reConnFunc():
+			{
+				if !ok {
+					continue
+				}
+
+				logger.Infof("Reopen Successfully")
+				// 重连成功后，恢复工作协程
+				cc.endPoint.RW = rw
+				go cc.worker()
+				return
+			}
+		}
+	}
+
+ReopenEnd:
 	UpdateMultiValueContext(cc.ctx, TransportState, ErrReopenFailure)
 	cc.ctx.Value(cc).(context.CancelFunc)()
 	return
@@ -209,7 +256,12 @@ func (cc *ChannelContextClient) worker() {
 			case <-cc.ctx.Done():
 				logger.Debugf("Client Context is canceled, Worker finish.")
 			default:
-				cc.reopen()
+				if cc.reopenTimeout <= 0 {
+					cc.reopen()
+				} else {
+					cc.reopenWithTimeOut()
+				}
+
 			}
 			break
 		}
