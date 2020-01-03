@@ -267,7 +267,7 @@ func (cc *channelContextImpl) reSendMsgToEndPoint(point *open_interface.EndPoint
 	defer point.Locker().Unlock()
 
 	//msg.Seq = seq
-	logger.Debugf("ReSend Message: %+v", msg)
+	logger.Infof("ReSend Message: %+v", msg)
 	msg.Ack = atomic.LoadUint32(&point.Ack)
 	if err := point.RW.Write(msg); err != nil {
 		logger.Errorf("Write Message Failure: %v", err)
@@ -282,7 +282,7 @@ func (cc *channelContextImpl) sendMsgToEndPoint(point *open_interface.EndPoint, 
 	msg.Seq = atomic.LoadUint32(&point.Sequence)
 	msg.Ack = atomic.LoadUint32(&point.Ack)
 
-	logger.Debugf("Send Message: %+v", msg)
+	logger.Infof("Send Message: %+v", msg)
 	if err := point.RW.Write(msg); err != nil {
 		logger.Errorf("Write Message Failure: %v", err)
 	}
