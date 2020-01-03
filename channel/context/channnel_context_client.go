@@ -266,6 +266,7 @@ func (cc *ChannelContextClient) worker() {
 			break
 		}
 
+		logger.Debugf("Receive Message: %+v", msg)
 		if msg.Ack > atomic.LoadUint32(&cc.endPoint.Sequence) {
 			// 异常消息，忽略
 			continue
