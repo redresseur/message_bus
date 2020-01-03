@@ -184,7 +184,7 @@ func (cc *channelContextImpl) recvMsgFromEndPoint(point *open_interface.EndPoint
 		// 检查ack 和 seq
 		// 如果msg.ack 大于 point.seq， 说明对方串包了
 		if msg.Ack > atomic.LoadUint32(&point.Sequence) {
-			logger.Warnf("Ack %d greater than Seq %d", msg.Ack, point.Sequence)
+			logger.Warnf("Msg %+v: Ack %d greater than Seq %d", msg, msg.Ack, point.Sequence)
 			continue
 		}
 
