@@ -281,16 +281,10 @@ func (cc *channelContextImpl) sendMsgToEndPoint(point *open_interface.EndPoint, 
 
 	// 复制消息副本
 	dMsg := new(message.UnitMessage)
+	*dMsg = *msg
 	dMsg.Seq = atomic.LoadUint32(&point.Sequence)
 	dMsg.Ack = atomic.LoadUint32(&point.Ack)
 	dMsg.DstEndPointId = []string{point.Id}
-	dMsg.ChannelId = msg.ChannelId
-	dMsg.SrcEndPointId = msg.SrcEndPointId
-	dMsg.Type = msg.Type
-	dMsg.Flag = msg.Flag
-	dMsg.Timestamp = msg.Timestamp
-	dMsg.Metadata = msg.Metadata
-	dMsg.Payload = msg.Payload
 
 	logger.Debugf("Send Message: %+v", dMsg)
 	if err := point.RW.Write(dMsg); err != nil {
